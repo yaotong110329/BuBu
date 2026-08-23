@@ -1,0 +1,31 @@
+# Gradle and Android build outputs
+.gradle/
+.kotlin/
+build/
+**/build/
+.externalNativeBuild/
+.cxx/
+
+# Local Android SDK configuration
+local.properties
+keystore.properties
+signing.properties
+*.jks
+*.keystore
+
+# Android Studio / IntelliJ IDEA
+.idea/
+*.iml
+captures/
+
+# Packaged and temporary artifacts
+*.apk
+*.aab
+*.ap_
+*.hprof
+outputs/
+.scratch/phone-window.xml
+
+# OS files
+.DS_Store
+Thumbs.db
