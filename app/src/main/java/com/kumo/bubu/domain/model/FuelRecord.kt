@@ -16,6 +16,7 @@ data class FuelRecord(
     val isFullTank: Boolean,
     val fuelProduct: FuelProduct?,
     val fuelingMode: FuelingMode = FuelingMode.FULL_SERVICE,
+    val fuelEconomyStatisticsStatus: FuelEconomyStatisticsStatus = FuelEconomyStatisticsStatus.UNREVIEWED,
     val note: String?,
     val createdAt: Long,
     val updatedAt: Long,
@@ -32,6 +33,7 @@ data class FuelRecordInput(
     val isFullTank: Boolean,
     val fuelProduct: FuelProduct? = null,
     val fuelingMode: FuelingMode = FuelingMode.FULL_SERVICE,
+    val fuelEconomyStatisticsStatus: FuelEconomyStatisticsStatus = FuelEconomyStatisticsStatus.UNREVIEWED,
     val note: String? = null,
 )
 
@@ -57,6 +59,13 @@ enum class FuelProduct {
 enum class FuelingMode {
     FULL_SERVICE,
     SELF_SERVICE,
+}
+
+/** A user's decision about whether a full-tank segment belongs in fuel-economy statistics. */
+enum class FuelEconomyStatisticsStatus {
+    UNREVIEWED,
+    INCLUDED,
+    EXCLUDED,
 }
 
 /**

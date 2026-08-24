@@ -3,6 +3,8 @@ package com.kumo.bubu.feature.fuel
 import com.kumo.bubu.domain.model.FuelProduct
 import com.kumo.bubu.domain.model.FuelingMode
 import com.kumo.bubu.domain.model.FuelRecordInput
+import com.kumo.bubu.domain.model.FuelEconomyOutlier
+import com.kumo.bubu.domain.model.FuelEconomyStatisticsStatus
 import com.kumo.bubu.domain.model.Vehicle
 import com.kumo.bubu.domain.repository.FuelOdometerNeighbors
 import com.kumo.bubu.domain.model.calculateFuelPricePerLiter
@@ -27,6 +29,7 @@ data class FuelFormUiState(
     val isFullTank: Boolean = false,
     val fuelProduct: FuelProduct? = null,
     val fuelingMode: FuelingMode = FuelingMode.FULL_SERVICE,
+    val fuelEconomyStatisticsStatus: FuelEconomyStatisticsStatus = FuelEconomyStatisticsStatus.UNREVIEWED,
     val note: String = "",
     val priceSource: FuelPriceSource = FuelPriceSource.NONE,
     val priceEffectiveDateEpochDay: Long? = null,
@@ -40,6 +43,7 @@ data class FuelFormUiState(
     val odometerOrderReason: String = "",
     val odometerOrderReasonRequired: Boolean = false,
     val pendingSaveInput: FuelRecordInput? = null,
+    val fuelEconomyOutlier: FuelEconomyOutlier? = null,
 ) {
     val canSave: Boolean get() = activeVehicles.isNotEmpty() && !isLoading && !isSaving
     val isEditing: Boolean get() = fuelRecordId != null
@@ -99,11 +103,15 @@ sealed interface FuelFormEvent {
     data class FullTankChanged(val value: Boolean) : FuelFormEvent
     data class FuelProductChanged(val value: FuelProduct?) : FuelFormEvent
     data class FuelingModeChanged(val value: FuelingMode) : FuelFormEvent
+    data class FuelEconomyStatisticsStatusChanged(val value: FuelEconomyStatisticsStatus) : FuelFormEvent
     data object RefreshPrice : FuelFormEvent
     data class NoteChanged(val value: String) : FuelFormEvent
     data class OdometerOrderReasonChanged(val value: String) : FuelFormEvent
     data object ConfirmOdometerOrder : FuelFormEvent
     data object DismissOdometerOrder : FuelFormEvent
+    data object ConfirmFuelEconomyOutlier : FuelFormEvent
+    data object ExcludeFuelEconomyOutlier : FuelFormEvent
+    data object DismissFuelEconomyOutlier : FuelFormEvent
     data object Save : FuelFormEvent
 }
 
@@ -156,6 +164,7 @@ fun FuelFormUiState.validate(today: LocalDate = LocalDate.now()): FuelFormValida
             isFullTank = isFullTank,
             fuelProduct = fuelProduct,
             fuelingMode = fuelingMode,
+            fuelEconomyStatisticsStatus = fuelEconomyStatisticsStatus,
             note = note,
         ),
         errors = emptyMap(),

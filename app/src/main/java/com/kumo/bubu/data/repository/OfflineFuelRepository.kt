@@ -17,6 +17,7 @@ import com.kumo.bubu.domain.model.FuelRecord
 import com.kumo.bubu.domain.model.FuelRecordInput
 import com.kumo.bubu.domain.model.FuelProduct
 import com.kumo.bubu.domain.model.FuelingMode
+import com.kumo.bubu.domain.model.FuelEconomyStatisticsStatus
 import com.kumo.bubu.domain.model.validated
 import com.kumo.bubu.domain.repository.FuelOdometerNeighbors
 import com.kumo.bubu.domain.repository.FuelRepository
@@ -136,6 +137,13 @@ class OfflineFuelRepository(
             values[fullTankKey(publicId)] = input.isFullTank
             input.fuelProduct?.let { values[lastFuelProductKey(publicId)] = it.name }
             values[lastFuelingModeKey(publicId)] = input.fuelingMode.name
+        }
+    }
+
+    override suspend fun setFuelEconomyStatisticsStatus(id: Long, status: FuelEconomyStatisticsStatus) {
+        database.withTransaction {
+            requireNotNull(fuelRecordDao.getById(id)) { "Fuel record does not exist." }
+            fuelRecordDao.updateFuelEconomyStatisticsStatus(id, status, System.currentTimeMillis())
         }
     }
 

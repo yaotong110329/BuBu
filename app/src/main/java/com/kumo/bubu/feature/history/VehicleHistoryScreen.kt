@@ -41,6 +41,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kumo.bubu.R
 import com.kumo.bubu.core.ui.components.ConfirmDeleteDialog
 import com.kumo.bubu.domain.model.toFuelEconomyDisplayText
+import com.kumo.bubu.domain.model.FuelEconomyStatisticsStatus
 import com.kumo.bubu.feature.fuel.labelRes
 import com.kumo.bubu.feature.fuel.toLiterText
 import java.time.LocalDate
@@ -241,6 +242,9 @@ private fun FuelHistorySummary(item: VehicleHistoryItem.Fuel) {
     Text(stringResource(R.string.vehicle_history_total_cost, record.totalCostTwd))
     item.fuelEconomyMilliKmPerLiter?.let { economy ->
         Text(stringResource(R.string.vehicle_history_fuel_economy, economy.toFuelEconomyDisplayText()))
+    }
+    if (record.fuelEconomyStatisticsStatus == FuelEconomyStatisticsStatus.EXCLUDED) {
+        Text(stringResource(R.string.fuel_economy_excluded_from_statistics), color = MaterialTheme.colorScheme.error)
     }
 }
 

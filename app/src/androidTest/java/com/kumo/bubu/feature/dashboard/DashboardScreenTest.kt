@@ -106,41 +106,6 @@ class DashboardScreenTest {
         assertEquals(3L, openedVehicleId)
     }
 
-    @Test
-    fun recentServiceRecordOpensItsVehicleHistory() {
-        var openedVehicleId: Long? = null
-        composeRule.setContent {
-            BuBuTheme {
-                DashboardScreen(
-                    state = DashboardUiState(
-                        vehicles = listOf(item(3, "RAV4", "ABC-1234")),
-                        recentRecords = listOf(
-                            DashboardRecentRecord.Service(
-                                vehicleId = 3,
-                                vehicleName = "RAV4",
-                                dateEpochDay = 20_000,
-                                timeMinuteOfDay = null,
-                                sequenceInDay = 0,
-                                id = 20,
-                                title = "Brake check",
-                                totalCostTwd = 1_200,
-                            ),
-                        ),
-                        isLoading = false,
-                    ),
-                    onAddVehicle = {},
-                    onOpenVehicleHistory = { openedVehicleId = it },
-                    onAddFuel = {},
-                    onAddService = {},
-                )
-            }
-        }
-
-        composeRule.onNodeWithText("Brake check").assertIsDisplayed().performClick()
-
-        assertEquals(3L, openedVehicleId)
-    }
-
     private fun item(
         id: Long,
         name: String,

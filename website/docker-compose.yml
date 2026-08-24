@@ -1,0 +1,9 @@
+services:
+  bubu-site:
+    image: nginx:1.27-alpine
+    container_name: bubu-site
+    restart: unless-stopped
+    ports:
+      - "8088:80"
+    volumes:
+      - ./public:/usr/share/nginx/html:ro

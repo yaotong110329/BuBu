@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Update
 import com.kumo.bubu.data.local.entity.FuelRecordEntity
+import com.kumo.bubu.domain.model.FuelEconomyStatisticsStatus
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -68,6 +69,13 @@ interface FuelRecordDao {
 
     @Update
     suspend fun update(record: FuelRecordEntity)
+
+    @Query("UPDATE fuel_records SET fuelEconomyStatisticsStatus = :status, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateFuelEconomyStatisticsStatus(
+        id: Long,
+        status: FuelEconomyStatisticsStatus,
+        updatedAt: Long,
+    )
 
     @Query("DELETE FROM fuel_records WHERE id = :id")
     suspend fun deleteById(id: Long)

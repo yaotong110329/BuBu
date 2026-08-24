@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.LocalGasStation
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -34,6 +35,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.kumo.bubu.R
+import com.kumo.bubu.domain.model.CloudBackupConnection
+import com.kumo.bubu.domain.model.CloudBackupError
 import com.kumo.bubu.domain.repository.RecoveryBackup
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -46,6 +49,7 @@ import java.time.format.DateTimeFormatter
 fun SettingsScreen(
     onManageVehicles: () -> Unit,
     onManageServiceSettings: () -> Unit,
+    onReviewFuelEconomy: () -> Unit = {},
     modifier: Modifier = Modifier,
     statutoryReminderSettingsUiState: StatutoryReminderSettingsUiState =
         StatutoryReminderSettingsUiState(),
@@ -60,6 +64,11 @@ fun SettingsScreen(
     onRestoreBackup: () -> Unit = {},
     onExportRecoveryBackup: () -> Unit = {},
     onDeleteRecoveryBackup: () -> Unit = {},
+    cloudBackupUiState: CloudBackupUiState = CloudBackupUiState(),
+    onConnectGoogleDrive: () -> Unit = {},
+    onCreateCloudBackup: () -> Unit = {},
+    onRestoreCloudBackup: () -> Unit = {},
+    onDisconnectGoogleDrive: () -> Unit = {},
 ) {
     Scaffold(
         modifier = modifier,
@@ -86,6 +95,13 @@ fun SettingsScreen(
                     title = stringResource(R.string.settings_service_settings),
                     icon = { Icon(Icons.Filled.Build, contentDescription = null) },
                     onClick = onManageServiceSettings,
+                )
+                GroupDivider()
+                NavigationSettingRow(
+                    title = stringResource(R.string.settings_fuel_economy_review),
+                    summary = stringResource(R.string.settings_fuel_economy_review_summary),
+                    icon = { Icon(Icons.Filled.LocalGasStation, contentDescription = null) },
+                    onClick = onReviewFuelEconomy,
                 )
             }
             SettingsSection(stringResource(R.string.settings_section_reminders)) {
@@ -202,9 +218,123 @@ fun SettingsScreen(
                     )
                 }
             }
+            SettingsSection(stringResource(R.string.settings_section_google_drive)) {
+                GoogleDriveBackupSettings(
+                    state = cloudBackupUiState,
+                    onConnect = onConnectGoogleDrive,
+                    onCreateBackup = onCreateCloudBackup,
+                    onRestore = onRestoreCloudBackup,
+                    onDisconnect = onDisconnectGoogleDrive,
+                )
+            }
         }
     }
 }
+
+@Composable
+private fun GoogleDriveBackupSettings(
+    state: CloudBackupUiState,
+    onConnect: () -> Unit,
+    onCreateBackup: () -> Unit,
+    onRestore: () -> Unit,
+    onDisconnect: () -> Unit,
+) {
+    val connected = state.connection as? CloudBackupConnection.Connected
+    ListItem(
+        headlineContent = { Text(stringResource(R.string.settings_google_drive_title)) },
+        supportingContent = {
+            val text = when {
+                connected != null -> stringResource(
+                    R.string.settings_google_drive_connected_summary,
+                    connected.account.email,
+                )
+                state.connection is CloudBackupConnection.NeedsAuthorization ->
+                    stringResource(R.string.settings_google_drive_needs_authorization)
+                else -> stringResource(R.string.settings_google_drive_not_connected)
+            }
+            Text(text)
+        },
+        leadingContent = { Icon(Icons.Filled.Download, contentDescription = null) },
+        trailingContent = {
+            if (connected == null) {
+                TextButton(onClick = onConnect, modifier = Modifier.testTag("settings-google-drive-connect")) {
+                    Text(stringResource(R.string.settings_google_drive_connect))
+                }
+            }
+        },
+    )
+    if (connected != null) {
+        connected.account.lastCloudBackupAtEpochMillis?.let { lastBackupAt ->
+            GroupDivider()
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_google_drive_last_backup)) },
+                supportingContent = { Text(lastBackupAt.toCloudBackupDateTimeText()) },
+            )
+        }
+        GroupDivider()
+        NavigationSettingRow(
+            title = stringResource(R.string.settings_google_drive_backup_now),
+            summary = when {
+                state.isUploading -> stringResource(R.string.settings_google_drive_backup_loading)
+                state.backupCompleted -> stringResource(R.string.settings_google_drive_backup_complete)
+                else -> stringResource(R.string.settings_google_drive_backup_summary)
+            },
+            icon = { Icon(Icons.Filled.Download, contentDescription = null) },
+            enabled = !state.isUploading && !state.isLoadingBackups && !state.isDownloading,
+            onClick = onCreateBackup,
+            modifier = Modifier.testTag("settings-google-drive-backup"),
+        )
+        GroupDivider()
+        NavigationSettingRow(
+            title = stringResource(R.string.settings_google_drive_restore),
+            summary = if (state.isLoadingBackups) {
+                stringResource(R.string.settings_google_drive_list_loading)
+            } else {
+                stringResource(R.string.settings_google_drive_restore_summary)
+            },
+            icon = { Icon(Icons.Filled.Download, contentDescription = null) },
+            enabled = !state.isUploading && !state.isDownloading,
+            onClick = onRestore,
+            modifier = Modifier.testTag("settings-google-drive-restore"),
+        )
+        GroupDivider()
+        NavigationSettingRow(
+            title = stringResource(R.string.settings_google_drive_disconnect),
+            summary = stringResource(R.string.settings_google_drive_disconnect_summary),
+            icon = { Icon(Icons.Filled.Download, contentDescription = null) },
+            enabled = !state.isUploading && !state.isLoadingBackups && !state.isDownloading,
+            onClick = onDisconnect,
+            modifier = Modifier.testTag("settings-google-drive-disconnect"),
+        )
+    }
+    state.error?.let { error ->
+        GroupDivider()
+        ListItem(
+            headlineContent = { Text(stringResource(R.string.settings_google_drive_title)) },
+            supportingContent = { Text(error.toCloudBackupMessage()) },
+        )
+    }
+}
+
+private fun Long.toCloudBackupDateTimeText(): String = Instant.ofEpochMilli(this)
+    .atZone(ZoneId.systemDefault())
+    .format(DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm"))
+
+@Composable
+private fun CloudBackupError.toCloudBackupMessage(): String = stringResource(
+    when (this) {
+        CloudBackupError.NotConnected -> R.string.settings_google_drive_error_not_connected
+        CloudBackupError.NetworkUnavailable -> R.string.settings_google_drive_error_offline
+        CloudBackupError.AuthorizationExpired -> R.string.settings_google_drive_error_authorization_expired
+        CloudBackupError.UploadFailed -> R.string.settings_google_drive_error_upload
+        CloudBackupError.DownloadFailed -> R.string.settings_google_drive_error_download
+        CloudBackupError.DeleteFailed -> R.string.settings_google_drive_error_delete
+        CloudBackupError.InvalidBackup -> R.string.settings_google_drive_error_invalid_backup
+        CloudBackupError.UnsupportedFormat -> R.string.settings_google_drive_error_unsupported_format
+        CloudBackupError.ConfigurationMissing -> R.string.settings_google_drive_error_configuration
+        is CloudBackupError.Unknown -> R.string.settings_google_drive_error_unknown
+    },
+)
 
 @Composable
 private fun SettingsSection(title: String, content: @Composable () -> Unit) {

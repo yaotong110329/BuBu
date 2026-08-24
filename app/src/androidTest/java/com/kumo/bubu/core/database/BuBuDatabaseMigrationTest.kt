@@ -41,6 +41,9 @@ class BuBuDatabaseMigrationTest {
                 BuBuDatabase.MIGRATION_7_8,
                 BuBuDatabase.MIGRATION_8_9,
                 BuBuDatabase.MIGRATION_9_10,
+                BuBuDatabase.MIGRATION_10_11,
+                BuBuDatabase.MIGRATION_11_12,
+                BuBuDatabase.MIGRATION_12_13,
             )
             .allowMainThreadQueries()
             .build()
@@ -444,6 +447,29 @@ class BuBuDatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migrationFromTwelveToThirteenKeepsExistingFuelRecordsIncludedByDefault() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(V12_MIGRATION_DATABASE)
+        migrationHelper.createDatabase(V12_MIGRATION_DATABASE, 12).use { database ->
+            database.execSQL("INSERT INTO vehicles (id, publicId, name, vehicleType, trackingStartDateEpochDay, trackingStartOdometerKm, currentOdometerKm, isArchived, createdAt, updatedAt) VALUES (1, 'vehicle-v12', 'Vehicle', 'CAR', 19000, 0, 0, 0, 1, 1)")
+            database.execSQL("INSERT INTO fuel_records (id, publicId, vehicleId, dateEpochDay, timeMinuteOfDay, sequenceInDay, odometerKm, fuelVolumeMl, pricePerLiterMilli, totalCostTwd, isFullTank, fuelProduct, fuelingMode, note, createdAt, updatedAt) VALUES (1, 'fuel-v12', 1, 20000, 600, 0, 1000, 1000, 28900, 29, 1, 'GASOLINE_95', 'FULL_SERVICE', NULL, 1, 1)")
+        }
+
+        val database = migrationHelper.runMigrationsAndValidate(
+            V12_MIGRATION_DATABASE, 13, true, BuBuDatabase.MIGRATION_12_13,
+        )
+        try {
+            database.query("SELECT fuelEconomyStatisticsStatus FROM fuel_records WHERE id = 1").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("UNREVIEWED", cursor.getString(0))
+            }
+        } finally {
+            database.close()
+            context.deleteDatabase(V12_MIGRATION_DATABASE)
+        }
+    }
+
     private fun scalarInt(database: androidx.sqlite.db.SupportSQLiteDatabase, query: String): Int =
         database.query(query).use { cursor ->
             check(cursor.moveToFirst())
@@ -484,6 +510,7 @@ class BuBuDatabaseMigrationTest {
         const val V7_MIGRATION_DATABASE = "bubu-v7-v8-migration-test"
         const val V8_MIGRATION_DATABASE = "bubu-v8-v9-migration-test"
         const val V9_MIGRATION_DATABASE = "bubu-v9-v10-migration-test"
+        const val V12_MIGRATION_DATABASE = "bubu-v12-v13-migration-test"
         val TEST_MIGRATION_LABELS = ServiceMigrationLabels(
             maintenanceTitle = "保養工單",
             repairTitle = "維修工單",

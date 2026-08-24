@@ -4,6 +4,7 @@ import com.kumo.bubu.domain.model.FuelRecord
 import com.kumo.bubu.domain.model.FuelRecordInput
 import com.kumo.bubu.domain.model.FuelProduct
 import com.kumo.bubu.domain.model.FuelingMode
+import com.kumo.bubu.domain.model.FuelEconomyStatisticsStatus
 import com.kumo.bubu.domain.repository.FuelOdometerNeighbors
 import com.kumo.bubu.domain.repository.FuelRepository
 import kotlinx.coroutines.flow.Flow
@@ -14,6 +15,7 @@ class FakeFuelRepository : FuelRepository {
     val createdInputs = mutableListOf<FuelRecordInput>()
     val updatedInputs = mutableListOf<Pair<Long, FuelRecordInput>>()
     val deletedIds = mutableListOf<Long>()
+    val fuelEconomyStatisticsUpdates = mutableListOf<Pair<Long, FuelEconomyStatisticsStatus>>()
     val fullTankSettings = mutableMapOf<String, Boolean>()
     val lastFuelProducts = mutableMapOf<String, FuelProduct>()
     val lastFuelingModes = mutableMapOf<String, FuelingMode>()
@@ -50,6 +52,10 @@ class FakeFuelRepository : FuelRepository {
 
     override suspend fun updateFuelRecord(id: Long, input: FuelRecordInput) {
         updatedInputs += id to input
+    }
+
+    override suspend fun setFuelEconomyStatisticsStatus(id: Long, status: FuelEconomyStatisticsStatus) {
+        fuelEconomyStatisticsUpdates += id to status
     }
 
     override suspend fun deleteFuelRecord(id: Long) {

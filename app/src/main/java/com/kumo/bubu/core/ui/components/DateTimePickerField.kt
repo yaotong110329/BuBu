@@ -1,7 +1,10 @@
 package com.kumo.bubu.core.ui.components
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.annotation.StringRes
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -14,6 +17,10 @@ import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
@@ -21,29 +28,48 @@ import com.kumo.bubu.R
 import java.time.LocalDate
 import java.time.LocalTime
 
-/** Shared read-only local date/time field used by fuel and service records. */
+/**
+ * A display-only local date or time field whose overlay owns pointer input.
+ *
+ * `OutlinedTextField` consumes taps even when it is read-only, so attaching a
+ * click handler to the field itself prevents picker dialogs from opening on
+ * some devices. The overlay preserves the field's visual treatment while
+ * routing every tap to the supplied picker action.
+ */
 @Composable
-fun LocalDateTimeField(
-    date: String,
-    time: String,
+fun LocalDateTimePickerField(
+    value: String,
+    @StringRes labelRes: Int,
     enabled: Boolean,
     isError: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     supportingContent: @Composable (() -> Unit)? = null,
 ) {
+    val fieldDescription = stringResource(labelRes)
     Column(modifier) {
-        OutlinedTextField(
-            value = listOf(date, time).filter(String::isNotBlank).joinToString("  "),
-            onValueChange = {},
-            readOnly = true,
-            label = { Text(stringResource(R.string.date_time)) },
-            modifier = Modifier.clickable(enabled = enabled, onClick = onClick),
-            enabled = enabled,
-            singleLine = true,
-            shape = RoundedCornerShape(18.dp),
-            isError = isError,
-        )
+        Box {
+            OutlinedTextField(
+                value = value,
+                onValueChange = {},
+                readOnly = true,
+                label = { Text(stringResource(labelRes)) },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = enabled,
+                singleLine = true,
+                shape = RoundedCornerShape(18.dp),
+                isError = isError,
+            )
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .semantics {
+                        contentDescription = fieldDescription
+                        role = Role.Button
+                    }
+                    .clickable(enabled = enabled, onClick = onClick),
+            )
+        }
         supportingContent?.invoke()
     }
 }

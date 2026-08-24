@@ -6,6 +6,7 @@ import com.kumo.bubu.domain.model.PaymentMethod
 import com.kumo.bubu.domain.model.PowertrainType
 import com.kumo.bubu.domain.model.FuelProduct
 import com.kumo.bubu.domain.model.FuelingMode
+import com.kumo.bubu.domain.model.FuelEconomyStatisticsStatus
 import com.kumo.bubu.domain.model.VehicleType
 import com.kumo.bubu.domain.model.ServiceQuantityUnit
 import com.kumo.bubu.domain.model.ServiceRecordType
@@ -50,6 +51,13 @@ class VehicleTypeConverters {
 
     @TypeConverter
     fun stringToFuelingMode(value: String): FuelingMode = FuelingMode.valueOf(value)
+
+    @TypeConverter
+    fun fuelEconomyStatisticsStatusToString(value: FuelEconomyStatisticsStatus): String = value.name
+
+    @TypeConverter
+    fun stringToFuelEconomyStatisticsStatus(value: String): FuelEconomyStatisticsStatus =
+        runCatching { FuelEconomyStatisticsStatus.valueOf(value) }.getOrDefault(FuelEconomyStatisticsStatus.UNREVIEWED)
 
     @TypeConverter
     fun serviceRecordTypeToString(value: ServiceRecordType): String = value.name

@@ -1,7 +1,6 @@
 package com.kumo.bubu.feature.fuel
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,8 +20,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -35,10 +32,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberDatePickerState
-import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -56,10 +50,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kumo.bubu.R
 import com.kumo.bubu.core.ui.components.bringIntoViewOnFocus
 import com.kumo.bubu.core.ui.components.LocalDatePickerDialog
-import com.kumo.bubu.core.ui.components.LocalDateTimeField
+import com.kumo.bubu.core.ui.components.LocalDateTimePickerField
 import com.kumo.bubu.core.ui.components.LocalTimePickerDialog
 import com.kumo.bubu.domain.model.FuelProduct
 import com.kumo.bubu.domain.model.FuelingMode
+import com.kumo.bubu.domain.model.FuelEconomyStatisticsStatus
+import com.kumo.bubu.domain.model.toFuelEconomyDisplayText
 import java.time.LocalDate
 import java.time.LocalTime
 
@@ -143,7 +139,8 @@ private fun FuelRecordScreen(
                 BasicInfoCard(
                     state = state,
                     onEvent = onEvent,
-                    onDateTimeClick = { showDatePicker = true },
+                    onDateClick = { showDatePicker = true },
+                    onTimeClick = { showTimePicker = true },
                 )
             }
             item { FuelInputCard(state = state, onEvent = onEvent) }
@@ -173,7 +170,6 @@ private fun FuelRecordScreen(
             onDateSelected = {
                 onEvent(FuelFormEvent.DateChanged(it))
                 showDatePicker = false
-                showTimePicker = true
             },
             onDismiss = { showDatePicker = false },
         )
@@ -189,6 +185,7 @@ private fun FuelRecordScreen(
         )
     }
     OdometerOrderWarningDialog(state, onEvent)
+    FuelEconomyOutlierDialog(state, onEvent)
 }
 
 @Composable
@@ -228,7 +225,8 @@ private fun VehicleTitleMenu(
 private fun BasicInfoCard(
     state: FuelFormUiState,
     onEvent: (FuelFormEvent) -> Unit,
-    onDateTimeClick: () -> Unit,
+    onDateClick: () -> Unit,
+    onTimeClick: () -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -245,42 +243,38 @@ private fun BasicInfoCard(
                 text = stringResource(R.string.fuel_basic_info),
                 style = MaterialTheme.typography.titleMedium,
             )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                LocalDateTimeField(
-                    date = state.date,
-                    time = state.time,
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                LocalDateTimePickerField(
+                    value = state.date,
+                    labelRes = R.string.fuel_date,
+                    isError = state.error(FuelFormField.DATE) != null,
                     enabled = !state.isSaving,
-                    isError = state.error(FuelFormField.DATE) != null || state.error(FuelFormField.TIME) != null,
-                    onClick = onDateTimeClick,
-                    modifier = Modifier.weight(3f),
-                    supportingContent = {
-                        state.error(FuelFormField.DATE)?.let { FuelFieldError(it) }
-                        state.error(FuelFormField.TIME)?.let { FuelFieldError(it) }
-                    },
+                    onClick = onDateClick,
+                    modifier = Modifier.weight(1f),
                 )
-                Column(modifier = Modifier.weight(2f)) {
-                    FuelTextField(
-                        value = state.odometerKm,
-                        onValueChange = { onEvent(FuelFormEvent.OdometerChanged(it)) },
-                        labelRes = R.string.fuel_odometer,
-                        error = state.error(FuelFormField.ODOMETER),
-                        keyboardType = KeyboardType.Number,
-                        enabled = !state.isSaving,
-                    )
-                    state.selectedVehicle?.let { vehicle ->
-                        Text(
-                            text = stringResource(
-                                R.string.fuel_current_odometer_hint,
-                                vehicle.currentOdometerKm,
-                            ),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+                LocalDateTimePickerField(
+                    value = state.time,
+                    labelRes = R.string.fuel_time,
+                    isError = state.error(FuelFormField.TIME) != null,
+                    enabled = !state.isSaving,
+                    onClick = onTimeClick,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            FuelTextField(
+                value = state.odometerKm,
+                onValueChange = { onEvent(FuelFormEvent.OdometerChanged(it)) },
+                labelRes = R.string.fuel_odometer,
+                error = state.error(FuelFormField.ODOMETER),
+                keyboardType = KeyboardType.Number,
+                enabled = !state.isSaving,
+            )
+            state.selectedVehicle?.let { vehicle ->
+                Text(
+                    text = stringResource(R.string.fuel_current_odometer_hint, vehicle.currentOdometerKm),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
@@ -452,6 +446,13 @@ internal fun AdvancedSettingsSection(
                             checked = state.isFullTank,
                             onCheckedChange = { onEvent(FuelFormEvent.FullTankChanged(it)) },
                             enabled = !state.isSaving,
+                        )
+                    }
+                    if (state.isEditing) {
+                        FuelEconomyStatisticsStatusChips(
+                            selected = state.fuelEconomyStatisticsStatus,
+                            enabled = !state.isSaving,
+                            onSelected = { onEvent(FuelFormEvent.FuelEconomyStatisticsStatusChanged(it)) },
                         )
                     }
                     if (!state.isEditing && state.fuelProduct != null) {
@@ -686,6 +687,63 @@ private fun OdometerOrderWarningDialog(state: FuelFormUiState, onEvent: (FuelFor
         dismissButton = {
             TextButton(onClick = { onEvent(FuelFormEvent.DismissOdometerOrder) }) {
                 Text(stringResource(R.string.cancel))
+            }
+        },
+    )
+}
+
+@Composable
+private fun FuelEconomyStatisticsStatusChips(
+    selected: FuelEconomyStatisticsStatus,
+    enabled: Boolean,
+    onSelected: (FuelEconomyStatisticsStatus) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(stringResource(R.string.fuel_economy_statistics_title), style = MaterialTheme.typography.bodyLarge)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = selected != FuelEconomyStatisticsStatus.EXCLUDED,
+                onClick = { onSelected(FuelEconomyStatisticsStatus.INCLUDED) },
+                enabled = enabled,
+                label = { Text(stringResource(R.string.fuel_economy_statistics_include)) },
+            )
+            FilterChip(
+                selected = selected == FuelEconomyStatisticsStatus.EXCLUDED,
+                onClick = { onSelected(FuelEconomyStatisticsStatus.EXCLUDED) },
+                enabled = enabled,
+                label = { Text(stringResource(R.string.fuel_economy_statistics_exclude)) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun FuelEconomyOutlierDialog(state: FuelFormUiState, onEvent: (FuelFormEvent) -> Unit) {
+    val outlier = state.fuelEconomyOutlier ?: return
+    AlertDialog(
+        onDismissRequest = { onEvent(FuelFormEvent.DismissFuelEconomyOutlier) },
+        title = { Text(stringResource(R.string.fuel_outlier_title)) },
+        text = {
+            Text(
+                stringResource(
+                    R.string.fuel_outlier_message,
+                    outlier.candidateMilliKmPerLiter.toFuelEconomyDisplayText(),
+                ),
+            )
+        },
+        dismissButton = {
+            TextButton(onClick = { onEvent(FuelFormEvent.DismissFuelEconomyOutlier) }) {
+                Text(stringResource(R.string.fuel_outlier_return))
+            }
+        },
+        confirmButton = {
+            Row {
+                TextButton(onClick = { onEvent(FuelFormEvent.ExcludeFuelEconomyOutlier) }) {
+                    Text(stringResource(R.string.fuel_outlier_exclude))
+                }
+                TextButton(onClick = { onEvent(FuelFormEvent.ConfirmFuelEconomyOutlier) }) {
+                    Text(stringResource(R.string.fuel_outlier_include))
+                }
             }
         },
     )

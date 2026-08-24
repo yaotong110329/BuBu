@@ -6,6 +6,7 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.kumo.bubu.domain.model.FuelProduct
 import com.kumo.bubu.domain.model.FuelingMode
+import com.kumo.bubu.domain.model.FuelEconomyStatisticsStatus
 
 @Entity(
     tableName = "fuel_records",
@@ -37,6 +38,7 @@ data class FuelRecordEntity(
     val isFullTank: Boolean,
     val fuelProduct: FuelProduct?,
     val fuelingMode: FuelingMode = FuelingMode.FULL_SERVICE,
+    val fuelEconomyStatisticsStatus: FuelEconomyStatisticsStatus = FuelEconomyStatisticsStatus.UNREVIEWED,
     val note: String?,
     val createdAt: Long,
     val updatedAt: Long,

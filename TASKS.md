@@ -1,5 +1,155 @@
 # BuBu Phase 0–2 任務清單
 
+## Google Drive Cloud Backup enhancement
+
+**狀態：** 進行中（2026-08-24；雲端備份、還原與手動刪除已完成實作；正式版簽署、雙帳號與五份保留實機驗收尚待完成）
+
+### CB-01：Google Cloud 設定與憑證安全文件
+
+**狀態：** 已完成（2026-08-24；實際 client ID 與兩帳號實機驗收待 CB-12）
+
+**前置任務：** 無 — 可立即開始
+
+**任務目標：** 讓開發與發布人員能安全設定 BuBu 的 Google Drive appDataFolder 存取，而不把 OAuth secret、keystore 密碼或 token 放入 Git。
+
+**完成條件：**
+
+- 新增 Google Cloud Project、Drive API、OAuth consent screen、Android OAuth client、Debug／Release SHA-1 與測試／正式發布注意事項。
+- 明確記錄 package name `com.kumo.bubu`、`drive.appdata` 與狹義 `drive.file` scope、以及實機驗收所需的非敏感 client ID 設定方式。
+- 文件說明不建立 BuBu 帳號、Firebase 或自架後端，且不提交任何長期 token 或 secret。
+
+### CB-02：Google 帳號識別與 Drive 授權連結
+
+**前置任務：** CB-01
+
+**任務目標：** 使用者可連結自己的 Google 帳號、看到已連結帳號，並能重新授權或解除連結，而不要求完整 Drive 權限。
+
+**完成條件：**
+
+- 使用 Credential Manager 取得帳號識別，並以 AuthorizationClient 要求 `drive.appdata` 與狹義 `drive.file`，不要求完整 Drive 權限。
+- 不保存 access token 或 refresh token；授權失效可轉為 NeedsAuthorization 而不清除手機資料。
+- 解除連結會撤回 BuBu 的 Google 授權、清除本機連結資訊但保留 appDataFolder 備份檔。
+
+### CB-03：appDataFolder 雲端備份資料層
+
+**前置任務：** CB-02
+
+**任務目標：** BuBu 可透過獨立的 CloudBackupRepository 存取自己的 appDataFolder，並將 Drive metadata 映射為不洩漏 API model 的 Cloud Backup 模型。
+
+**完成條件：**
+
+- 支援取得授權狀態／帳號、上傳、列出、下載與永久刪除 BuBu 建立的雲端備份。
+- 只查詢 appDataFolder 的 BuBu `.bubu` 檔案，並使用 app properties 保存 format version、app version、建立時間與資料摘要。
+- Drive API 在 data 層，既有 BackupRepository 不承擔 Drive transport；可在測試中替換 Drive API client。
+
+### CB-04：設定頁 Google Drive 連線狀態
+
+**前置任務：** CB-02、CB-03
+
+**任務目標：** 設定頁在本機備份與還原保留原功能的前提下，提供 Google Drive 未連線、連線中、已連線與重新授權的明確 UI。
+
+**完成條件：**
+
+- 未連線時顯示連結入口；已連線時顯示帳號、最後雲端備份時間與可用操作。
+- UI 使用 immutable StateFlow 狀態，Composable 不直接操作 Google API。
+- 所有新使用者可見文字位於 Android string resources，採用現有 Material 3 主題。
+
+### CB-05：手動立即 Google Drive 備份
+
+**前置任務：** CB-03、CB-04
+
+**任務目標：** 已連結的使用者可手動建立既有格式的 `.bubu`、先完成既有 validation，再上傳自己的 appDataFolder。
+
+**完成條件：**
+
+- 雲端檔名完全沿用本機 `bubu-backup-yyyy-MM-dd-HHmmss.bubu` 格式。
+- 成功後更新 lastCloudBackupAt 與摘要，並顯示「Google Drive 備份完成」。
+- 本機產生、驗證、網路或上傳失敗皆顯示具體原因，且不影響手機資料或既有雲端備份。
+
+### CB-06：雲端備份保留策略
+
+**前置任務：** CB-05
+
+**任務目標：** 每次新備份完整上傳成功後，BuBu 自動只保留最新五份自己的雲端備份。
+
+**完成條件：**
+
+- 保留數量為可集中調整的常數或設定值，清單依建立時間由新到舊排序。
+- 僅在新檔成功上傳後才永久刪除超額的最舊檔案；新檔失敗時不刪除任何既有檔案。
+- 對 appDataFolder 不可 trash 的限制使用永久刪除 API，且僅針對 BuBu metadata 符合的檔案。
+
+### CB-07：雲端備份清單
+
+**前置任務：** CB-03、CB-04
+
+**任務目標：** 已連結的使用者可由設定頁查看自己的雲端備份，並依時間新到舊閱讀每份備份的摘要。
+
+**完成條件：**
+
+- 每筆顯示日期時間、App version、檔案大小、車輛、加油及保養／維修工單數量。
+- 僅顯示 BuBu 自己建立且 metadata 完整的 `.bubu` 檔案；UI 不接收 Google Drive File model。
+- 清單具 loading、空白、重新整理與錯誤狀態。
+
+### CB-08：雲端下載與既有驗證橋接
+
+**前置任務：** CB-07
+
+**任務目標：** 選擇雲端備份時，BuBu 先下載到私有暫存空間，再交給既有 `.bubu` validation 與 Restore Preview 核心。
+
+**完成條件：**
+
+- 下載失敗或 validation／formatVersion 不支援時，禁止進入還原確認並顯示明確原因。
+- 暫存檔以受控生命週期保留至預覽／確認結束後清除。
+- 不重寫 archive reader、備份驗證或 Restore Preview 資料摘要。
+
+### CB-09：雲端備份還原整合
+
+**前置任務：** CB-08
+
+**任務目標：** 使用者可從已驗證的雲端備份預覽，確認後走既有復原備份、完全覆蓋還原與 rollback 流程。
+
+**完成條件：**
+
+- 使用現有 Restore Preview UI，點選雲端備份不會立即覆蓋手機資料。
+- 確認還原前建立目前資料的 Recovery Backup；還原失敗時沿用既有復原機制。
+- 還原完成或取消後清除雲端下載的暫存檔。
+
+### CB-10：離線、錯誤與授權失效狀態
+
+**前置任務：** CB-05、CB-07、CB-08、CB-09
+
+**任務目標：** 使用者在沒有網路、授權失效或 Drive API 發生錯誤時，得到可行動的明確訊息而非 crash 或籠統錯誤。
+
+**完成條件：**
+
+- 離線設定頁仍可開啟；備份與清單分別顯示離線狀態及重新整理／重試入口。
+- 授權錯誤將 Cloud Backup state 轉為 NeedsAuthorization，不清除本機資料或雲端清單資訊。
+- 上傳、下載、驗證與刪除錯誤依使用者可理解的原因映射到 UI。
+
+### CB-11：雲端備份測試覆蓋
+
+**前置任務：** CB-02 至 CB-10
+
+**任務目標：** 不連線 Google 真實帳號，即可自動驗證雲端備份的核心規則與設定頁使用流程。
+
+**完成條件：**
+
+- Unit tests 覆蓋保留最新五份、Drive metadata mapping、authorization state、雲端錯誤 mapping、清單排序與不支援格式。
+- Compose instrumentation tests 覆蓋未連線／已連線、備份 loading／成功／失敗、雲端清單與還原確認。
+- 測試只在 Drive API 邊界使用 fake／mock，不連線 Google。
+
+### CB-12：雲端備份品質閘門與實機驗收
+
+**前置任務：** CB-01 至 CB-11
+
+**任務目標：** 在 Google Cloud 設定完成後，以真實帳號確認雲端備份、還原、附件與帳號隔離，並完成本 enhancement 的品質檢查。
+
+**完成條件：**
+
+- 執行 clean、Debug APK、JVM unit tests、Android test APK、相容裝置的 connected tests 與 lint，修正本次變更造成的問題。
+- 以兩個 Google 帳號驗證上傳、下載、預覽、還原、附件、最新五份保留與解除再連結，帳號間不可看到彼此備份。
+- 使用 code-review 僅審查本次 Google Drive Cloud Backup enhancement；確認後才考慮將 versionName 升為 1.1.0。
+
 ## Dashboard title, report and settings UX refinement
 
 **狀態：** 已完成（2026-08-23；Debug APK、JVM unit tests、Android test APK、API 35 完整 61 項 instrumentation tests 與 lint 全部通過）
@@ -1644,3 +1794,15 @@ rg -n "Firebase|TODO|FIXME|GlobalScope|OdometerCorrection|OdometerReplacement" a
 **Release Readiness 驗證（2026-08-22）：** 以 Android Studio embedded JBR 25.0.2 的單一、非平行流程從 `clean` 重新建置，`:app:assembleDebug`、`:app:testDebugUnitTest`、`:app:assembleDebugAndroidTest`、API 35 Google APIs x86_64 AVD 的完整 `:app:connectedDebugAndroidTest` 與 `:app:lintDebug` 全數通過（lint 0 errors；log：`outputs/phase7-acceptance/release-readiness-final-api35.out.log`）。Git baseline 為 `ecb313d392d5ef9b5510fe547106605cbaa9d059`。Android 16 實機的完整套件仍有 isolated Compose screen test 在前序測試後遺失 host hierarchy；同一測試在 API 35 完整通過，且 Dashboard isolated regression 已通過，故列為測試 host lifecycle 相容性風險而非產品功能 blocker。baseline 後 Standards review 無 blocker，最終 Spec re-review 為 0 findings；quality gate 已關閉。
 
 **追蹤 tickets：** `.scratch/phase-7-export-backup/issues/`
+
+---
+
+## Post-v1 維護：油耗統計排除
+
+**狀態：** 已完成（2026-08-24）；JVM tests、debug build、lint、Android test APK、SM-S9280 Android 16 的 v12→v13 Room migration 儀器測試（8 項）與覆蓋安裝驗收均通過。
+
+### 已完成範圍
+
+- 以滿箱油耗區段終點保存未檢查、確認納入或排除的油耗統計判定；不刪除原始加油資料。
+- 報表、首頁最近平均與歷史油耗摘要一致忽略已排除區段，同時保留該紀錄作為下一區段錨點。
+- 舊有與匯入資料維持未檢查且仍納入統計，設定頁提供疑似異常資料的逐筆確認／排除流程。

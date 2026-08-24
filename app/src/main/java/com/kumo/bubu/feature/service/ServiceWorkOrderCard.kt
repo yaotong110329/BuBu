@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.kumo.bubu.R
 import com.kumo.bubu.core.ui.components.bringIntoViewOnFocus
 import com.kumo.bubu.core.ui.components.LocalDatePickerDialog
-import com.kumo.bubu.core.ui.components.LocalDateTimeField
+import com.kumo.bubu.core.ui.components.LocalDateTimePickerField
 import com.kumo.bubu.core.ui.components.LocalTimePickerDialog
 import com.kumo.bubu.domain.model.ServiceRecordType
 
@@ -111,22 +111,36 @@ private fun ServiceDateTimeFields(
         it == ServiceFormError.INVALID_DATE || it == ServiceFormError.FUTURE_DATE ||
             it == ServiceFormError.INVALID_TIME
     }
-    LocalDateTimeField(
-        date = state.date,
-        time = state.time,
-        enabled = !state.isSaving,
-        isError = dateTimeError != null,
-        onClick = { showDatePicker = true },
-        modifier = Modifier.fillMaxWidth(),
-        supportingContent = { dateTimeError?.let { ServiceFormErrorMessage(it) } },
-    )
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            LocalDateTimePickerField(
+                value = state.date,
+                labelRes = R.string.service_date,
+                enabled = !state.isSaving,
+                isError = dateTimeError != null,
+                onClick = { showDatePicker = true },
+                modifier = Modifier.weight(1f),
+            )
+            LocalDateTimePickerField(
+                value = state.time,
+                labelRes = R.string.service_time,
+                enabled = !state.isSaving,
+                isError = dateTimeError != null,
+                onClick = { showTimePicker = true },
+                modifier = Modifier.weight(1f),
+            )
+        }
+        dateTimeError?.let { ServiceFormErrorMessage(it) }
+    }
     if (showDatePicker) {
         LocalDatePickerDialog(
             date = state.date,
             onDateSelected = {
                 onEvent(ServiceFormEvent.DateChanged(it))
                 showDatePicker = false
-                showTimePicker = true
             },
             onDismiss = { showDatePicker = false },
         )

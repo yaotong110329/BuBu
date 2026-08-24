@@ -13,12 +13,14 @@ import com.kumo.bubu.data.local.dao.ServiceRecordDao
 import com.kumo.bubu.data.local.dao.ServiceTypeDao
 import com.kumo.bubu.data.local.dao.VehicleDao
 import com.kumo.bubu.data.local.dao.VehicleReminderDao
+import com.kumo.bubu.data.local.dao.VehicleServiceReminderPreferenceDao
 import com.kumo.bubu.data.local.entity.PendingAttachmentDeletionEntity
 import com.kumo.bubu.data.local.entity.ServiceAttachmentEntity
 import com.kumo.bubu.data.local.entity.ServiceItemEntity
 import com.kumo.bubu.data.local.entity.ServiceTypeEntity
 import com.kumo.bubu.data.local.entity.VehicleEntity
 import com.kumo.bubu.data.local.entity.VehicleReminderEntity
+import com.kumo.bubu.data.local.entity.VehicleServiceReminderPreferenceEntity
 import com.kumo.bubu.data.mapper.toDomain
 import com.kumo.bubu.data.mapper.toNewEntity
 import com.kumo.bubu.data.mapper.toUpdatedEntity
@@ -30,6 +32,9 @@ import com.kumo.bubu.domain.model.ServiceRecordInput
 import com.kumo.bubu.domain.model.StagedServiceAttachment
 import com.kumo.bubu.domain.model.ServiceType
 import com.kumo.bubu.domain.model.ServiceTypeInput
+import com.kumo.bubu.domain.model.ServiceReminderPreference
+import com.kumo.bubu.domain.model.ServiceReminderPreferenceInput
+import com.kumo.bubu.domain.model.defaultReminderIntervalKm
 import com.kumo.bubu.domain.model.MAX_SERVICE_ATTACHMENTS_PER_RECORD
 import com.kumo.bubu.domain.model.validated
 import com.kumo.bubu.domain.repository.ServiceRepository
@@ -55,6 +60,8 @@ class OfflineServiceRepository(
     private val serviceTypeDao: ServiceTypeDao,
     private val serviceAttachmentDao: ServiceAttachmentDao = database.serviceAttachmentDao(),
     private val vehicleReminderDao: VehicleReminderDao = database.vehicleReminderDao(),
+    private val serviceReminderPreferenceDao: VehicleServiceReminderPreferenceDao =
+        database.vehicleServiceReminderPreferenceDao(),
     private val pendingAttachmentDeletionDao: PendingAttachmentDeletionDao =
         database.pendingAttachmentDeletionDao(),
     private val attachmentStore: PrivateAttachmentStore? = null,
@@ -253,6 +260,9 @@ class OfflineServiceRepository(
         val now = System.currentTimeMillis()
         val carStart = serviceTypeDao.maxSortOrder(com.kumo.bubu.domain.model.VehicleType.CAR) + 1
         val motorcycleStart = serviceTypeDao.maxSortOrder(com.kumo.bubu.domain.model.VehicleType.MOTORCYCLE) + 1
+        val seedsByPublicId = builtInServiceTypeSeeds.associateBy { seed ->
+            "builtin-${seed.vehicleType.name.lowercase()}-${seed.key}"
+        }
         serviceTypeDao.insertIgnoreAll(
             builtInServiceTypeSeeds.groupBy(BuiltInServiceTypeSeed::vehicleType).flatMap { (vehicleType, seeds) -> seeds.mapIndexed { index, seed ->
             ServiceTypeEntity(
@@ -265,8 +275,31 @@ class OfflineServiceRepository(
                 createdAt = now,
                 updatedAt = now,
             )
-        } },
+                } },
         )
+        val allTypes = serviceTypeDao.getAll()
+        val occupiedNames = allTypes
+            .groupBy { type -> type.vehicleType to type.name }
+            .mapValues { (_, types) -> types.map(ServiceTypeEntity::id).toMutableSet() }
+            .toMutableMap()
+        allTypes.filter(ServiceTypeEntity::isBuiltIn).forEach { type ->
+            val seed = seedsByPublicId[type.publicId]
+            when {
+                seed == null && type.publicId.startsWith("builtin-") && !type.isArchived -> {
+                    serviceTypeDao.update(type.copy(isArchived = true, updatedAt = now))
+                }
+                seed != null && type.name != seed.displayName -> {
+                    val oldKey = type.vehicleType to type.name
+                    val newKey = type.vehicleType to seed.displayName
+                    val hasNameConflict = occupiedNames[newKey].orEmpty().any { id -> id != type.id }
+                    if (!hasNameConflict) {
+                        serviceTypeDao.update(type.copy(name = seed.displayName, updatedAt = now))
+                        occupiedNames[oldKey]?.remove(type.id)
+                        occupiedNames.getOrPut(newKey) { mutableSetOf() }.add(type.id)
+                    }
+                }
+            }
+        }
     }
 
     override suspend fun createServiceType(input: ServiceTypeInput): Long {
@@ -314,6 +347,54 @@ class OfflineServiceRepository(
             serviceTypeDao.update(requireNotNull(byId[id]).copy(sortOrder = sortOrder, updatedAt = now))
         }
     }
+
+    override fun observeServiceReminderPreferences(vehicleId: Long): Flow<List<ServiceReminderPreference>> =
+        serviceReminderPreferenceDao.observeForVehicle(vehicleId).map { preferences ->
+            preferences.map(VehicleServiceReminderPreferenceEntity::toDomain)
+        }
+
+    override fun observeAllServiceReminderPreferences(): Flow<List<ServiceReminderPreference>> =
+        serviceReminderPreferenceDao.observeAll().map { preferences ->
+            preferences.map(VehicleServiceReminderPreferenceEntity::toDomain)
+        }
+
+    override suspend fun saveServiceReminderPreference(input: ServiceReminderPreferenceInput) =
+        database.withTransaction {
+            val valid = input.validated()
+            requireNotNull(vehicleDao.getById(valid.vehicleId)) { "Vehicle does not exist." }
+            requireNotNull(serviceTypeDao.getById(valid.serviceTypeId)) { "Service type does not exist." }
+            val now = System.currentTimeMillis()
+            val existing = serviceReminderPreferenceDao.get(valid.vehicleId, valid.serviceTypeId)
+            if (existing == null) {
+                serviceReminderPreferenceDao.insert(
+                    VehicleServiceReminderPreferenceEntity(
+                        publicId = UUID.randomUUID().toString(),
+                        vehicleId = valid.vehicleId,
+                        serviceTypeId = valid.serviceTypeId,
+                        isEnabled = valid.isEnabled,
+                        intervalKm = valid.intervalKm,
+                        baseOdometerKm = valid.baseOdometerKm,
+                        sortOrder = valid.sortOrder,
+                        createdAt = now,
+                        updatedAt = now,
+                    ),
+                )
+            } else {
+                serviceReminderPreferenceDao.update(
+                    existing.copy(
+                        isEnabled = valid.isEnabled,
+                        intervalKm = valid.intervalKm,
+                        baseOdometerKm = valid.baseOdometerKm,
+                        sortOrder = valid.sortOrder,
+                        updatedAt = now,
+                    ),
+                )
+            }
+            serviceItemDao.getForVehicleInTimelineOrder(valid.vehicleId)
+                .lastOrNull { it.serviceTypeId == valid.serviceTypeId }
+                ?.let { item -> syncReminder(valid.vehicleId, item, now) }
+            rebuildReminderCompletions(valid.vehicleId, now)
+        }
 
     override suspend fun stageServiceAttachments(
         sourceUriStrings: List<String>,
@@ -440,8 +521,20 @@ class OfflineServiceRepository(
         item: ServiceItemEntity,
         now: Long,
     ) {
+        val preference = item.serviceTypeId?.let { serviceTypeId ->
+            serviceReminderPreferenceDao.get(vehicleId, serviceTypeId)
+        }
+        val serviceType = item.serviceTypeId?.let { serviceTypeId ->
+            serviceTypeDao.getById(serviceTypeId)
+        }
+        val intervalKm = preference?.intervalKm ?: serviceType?.toDomain()?.defaultReminderIntervalKm()
+        val preferenceDueOdometerKm = intervalKm?.let { intervalKm ->
+            serviceRecordDao.getById(item.serviceRecordId)?.odometerKm?.plus(intervalKm)
+        }
+        val dueOdometerKm = preferenceDueOdometerKm ?: item.nextDueOdometerKm
+        val isEnabled = preference?.isEnabled ?: true
         val existing = vehicleReminderDao.getBySourceServiceItemId(item.id)
-        if (item.nextDueOdometerKm == null && item.nextDueDateEpochDay == null) {
+        if (dueOdometerKm == null && item.nextDueDateEpochDay == null) {
             if (existing != null) {
                 vehicleReminderDao.deleteBySourceServiceItemId(item.id)
             }
@@ -455,9 +548,9 @@ class OfflineServiceRepository(
                     source = com.kumo.bubu.domain.model.ReminderSource.SERVICE_ITEM,
                     sourceServiceItemId = item.id,
                     title = item.nameSnapshot,
-                    dueOdometerKm = item.nextDueOdometerKm,
+                    dueOdometerKm = dueOdometerKm,
                     dueDateEpochDay = item.nextDueDateEpochDay,
-                    isEnabled = true,
+                    isEnabled = isEnabled,
                     createdAt = now,
                     updatedAt = now,
                 ),
@@ -467,8 +560,9 @@ class OfflineServiceRepository(
                 existing.copy(
                     vehicleId = vehicleId,
                     title = item.nameSnapshot,
-                    dueOdometerKm = item.nextDueOdometerKm,
+                    dueOdometerKm = dueOdometerKm,
                     dueDateEpochDay = item.nextDueDateEpochDay,
+                    isEnabled = isEnabled,
                     updatedAt = now,
                 ),
             )
@@ -593,3 +687,16 @@ class OfflineServiceRepository(
         val customName: String?,
     )
 }
+
+private fun VehicleServiceReminderPreferenceEntity.toDomain() = ServiceReminderPreference(
+    id = id,
+    publicId = publicId,
+    vehicleId = vehicleId,
+    serviceTypeId = serviceTypeId,
+    isEnabled = isEnabled,
+    intervalKm = intervalKm,
+    baseOdometerKm = baseOdometerKm,
+    sortOrder = sortOrder,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+)

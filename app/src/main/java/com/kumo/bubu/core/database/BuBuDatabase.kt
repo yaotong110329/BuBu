@@ -16,6 +16,7 @@ import com.kumo.bubu.data.local.dao.ServiceTypeDao
 import com.kumo.bubu.data.local.dao.ExpenseRecordDao
 import com.kumo.bubu.data.local.dao.ReportDao
 import com.kumo.bubu.data.local.dao.VehicleReminderDao
+import com.kumo.bubu.data.local.dao.VehicleServiceReminderPreferenceDao
 import com.kumo.bubu.data.local.entity.PendingAttachmentDeletionEntity
 import com.kumo.bubu.data.local.entity.ServiceAttachmentEntity
 import com.kumo.bubu.data.local.entity.ServiceTypeEntity
@@ -25,6 +26,7 @@ import com.kumo.bubu.data.local.entity.ServiceItemEntity
 import com.kumo.bubu.data.local.entity.ServiceRecordEntity
 import com.kumo.bubu.data.local.entity.VehicleEntity
 import com.kumo.bubu.data.local.entity.VehicleReminderEntity
+import com.kumo.bubu.data.local.entity.VehicleServiceReminderPreferenceEntity
 
 data class ServiceMigrationLabels(
     val maintenanceTitle: String,
@@ -45,9 +47,10 @@ data class ServiceMigrationLabels(
         ExpenseRecordEntity::class,
         ServiceAttachmentEntity::class,
         VehicleReminderEntity::class,
+        VehicleServiceReminderPreferenceEntity::class,
         PendingAttachmentDeletionEntity::class,
     ],
-    version = 10,
+    version = 13,
     exportSchema = true,
 )
 @TypeConverters(VehicleTypeConverters::class)
@@ -62,6 +65,7 @@ abstract class BuBuDatabase : RoomDatabase() {
     abstract fun reportDao(): ReportDao
     abstract fun serviceAttachmentDao(): ServiceAttachmentDao
     abstract fun vehicleReminderDao(): VehicleReminderDao
+    abstract fun vehicleServiceReminderPreferenceDao(): VehicleServiceReminderPreferenceDao
     abstract fun pendingAttachmentDeletionDao(): PendingAttachmentDeletionDao
 
     companion object {
@@ -666,6 +670,49 @@ abstract class BuBuDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
                     "ALTER TABLE `fuel_records` ADD COLUMN `fuelingMode` TEXT NOT NULL DEFAULT 'FULL_SERVICE'",
+                )
+            }
+        }
+
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `vehicle_service_reminder_preferences` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `publicId` TEXT NOT NULL,
+                        `vehicleId` INTEGER NOT NULL,
+                        `serviceTypeId` INTEGER NOT NULL,
+                        `isEnabled` INTEGER NOT NULL,
+                        `intervalKm` INTEGER,
+                        `sortOrder` INTEGER NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        FOREIGN KEY(`vehicleId`) REFERENCES `vehicles`(`id`)
+                            ON UPDATE NO ACTION ON DELETE RESTRICT,
+                        FOREIGN KEY(`serviceTypeId`) REFERENCES `service_types`(`id`)
+                            ON UPDATE NO ACTION ON DELETE RESTRICT
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_vehicle_service_reminder_preferences_publicId` ON `vehicle_service_reminder_preferences` (`publicId`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_vehicle_service_reminder_preferences_vehicleId_serviceTypeId` ON `vehicle_service_reminder_preferences` (`vehicleId`, `serviceTypeId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_vehicle_service_reminder_preferences_serviceTypeId` ON `vehicle_service_reminder_preferences` (`serviceTypeId`)")
+            }
+        }
+
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE `vehicle_service_reminder_preferences` ADD COLUMN `baseOdometerKm` INTEGER",
+                )
+            }
+        }
+
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE `fuel_records` ADD COLUMN `fuelEconomyStatisticsStatus` TEXT NOT NULL DEFAULT 'UNREVIEWED'",
                 )
             }
         }

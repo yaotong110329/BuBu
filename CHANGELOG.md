@@ -4,6 +4,26 @@ All notable changes to BuBu will be documented in this file. The format follows 
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-24
+
+### Added
+
+- Google Drive cloud backup and restore for the existing complete `.bubu` format, scoped to each user's hidden Drive app-data folder.
+- A refreshable cloud-backup list with download preview and a confirmed permanent-delete action for a selected backup.
+
+### Security
+
+- Google authorization uses short-lived credentials and narrow Drive scopes; no access token, client secret, or signing material is stored in Git.
+
+### Added
+
+- User-managed fuel-economy statistics decisions: suspected abnormal full-tank segments can be confirmed or excluded without deleting the fuel record.
+- A Settings entry for reviewing historical suspected segments, including imported records, and restoring an excluded segment to fuel-economy statistics.
+
+### Changed
+
+- Reports, dashboard recent average, and fuel history now omit only explicitly excluded fuel-economy segments; fuel cost, odometer records, and cost per kilometre remain unchanged.
+
 ## [1.0.0] - 2026-08-23
 
 ### Added

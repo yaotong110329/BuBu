@@ -6,6 +6,8 @@ import com.kumo.bubu.domain.model.ServiceRecordInput
 import com.kumo.bubu.domain.model.ServiceType
 import com.kumo.bubu.domain.model.ServiceTypeInput
 import com.kumo.bubu.domain.model.StagedServiceAttachment
+import com.kumo.bubu.domain.model.ServiceReminderPreference
+import com.kumo.bubu.domain.model.ServiceReminderPreferenceInput
 import com.kumo.bubu.domain.repository.ServiceRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,11 +16,13 @@ class FakeServiceRepository : ServiceRepository {
     val records = MutableStateFlow<List<ServiceRecord>>(emptyList())
     val historyDetails = MutableStateFlow<List<ServiceRecordDetails>>(emptyList())
     val types = MutableStateFlow<List<ServiceType>>(emptyList())
+    val reminderPreferences = MutableStateFlow<List<ServiceReminderPreference>>(emptyList())
     val details = mutableMapOf<Long, ServiceRecordDetails>()
     val createdInputs = mutableListOf<ServiceRecordInput>()
     val updatedInputs = mutableListOf<Pair<Long, ServiceRecordInput>>()
     val deletedIds = mutableListOf<Long>()
     val deletedTypeIds = mutableListOf<Long>()
+    val reorderedTypeIds = mutableListOf<List<Long>>()
     val discardedPaths = mutableListOf<String>()
     var nextTypeId = 100L
 
@@ -55,7 +59,16 @@ class FakeServiceRepository : ServiceRepository {
         deletedTypeIds += id
     }
 
-    override suspend fun reorderServiceTypes(orderedIds: List<Long>) = Unit
+    override suspend fun reorderServiceTypes(orderedIds: List<Long>) {
+        reorderedTypeIds += orderedIds
+    }
+
+    override fun observeServiceReminderPreferences(vehicleId: Long): Flow<List<ServiceReminderPreference>> =
+        reminderPreferences
+
+    override fun observeAllServiceReminderPreferences(): Flow<List<ServiceReminderPreference>> = reminderPreferences
+
+    override suspend fun saveServiceReminderPreference(input: ServiceReminderPreferenceInput) = Unit
 
     override suspend fun stageServiceAttachments(sourceUriStrings: List<String>): List<StagedServiceAttachment> =
         sourceUriStrings.mapIndexed { index, _ ->

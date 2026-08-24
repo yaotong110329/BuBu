@@ -45,6 +45,22 @@ class ReportTest {
         assertTrue(points.isEmpty())
     }
 
+    @Test
+    fun excludedSegmentIsOmittedWithoutChangingTheFollowingSegment() {
+        val points = calculateReportFuelEconomyPoints(
+            listOf(
+                record(id = 1, vehicleId = 1, day = 1, odometerKm = 1_000, volumeMl = 5_000),
+                record(id = 2, vehicleId = 1, day = 2, odometerKm = 1_100, volumeMl = 10_000)
+                    .copy(fuelEconomyStatisticsStatus = FuelEconomyStatisticsStatus.EXCLUDED),
+                record(id = 3, vehicleId = 1, day = 3, odometerKm = 1_200, volumeMl = 10_000),
+            ),
+        )
+
+        assertEquals(1, points.size)
+        assertEquals(3L, points.single().fuelRecordId)
+        assertEquals(10_000L, points.single().milliKmPerLiter)
+    }
+
     private fun record(
         id: Long,
         vehicleId: Long,

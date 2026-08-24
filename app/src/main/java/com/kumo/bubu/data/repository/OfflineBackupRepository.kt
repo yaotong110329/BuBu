@@ -82,6 +82,7 @@ class OfflineBackupRepository(
                     serviceItems = database.serviceItemDao().getAllForExport(),
                     expenseRecords = database.expenseRecordDao().getAllForExport(),
                     reminders = database.vehicleReminderDao().getAll(),
+                    serviceReminderPreferences = database.vehicleServiceReminderPreferenceDao().getAll(),
                     attachments = database.serviceAttachmentDao().getAllForExport(),
                 ),
             )

@@ -18,7 +18,7 @@ interface ServiceTypeDao {
     @Query("SELECT * FROM service_types WHERE id = :id")
     suspend fun getById(id: Long): ServiceTypeEntity?
 
-    @Query("SELECT * FROM service_types ORDER BY sortOrder ASC, id ASC")
+    @Query("SELECT * FROM service_types ORDER BY vehicleType ASC, sortOrder ASC, id ASC")
     suspend fun getAll(): List<ServiceTypeEntity>
 
     @Query("SELECT COALESCE(MAX(sortOrder), -1) FROM service_types WHERE vehicleType = :vehicleType")

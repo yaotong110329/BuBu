@@ -100,7 +100,7 @@ fun calculateReportFuelEconomyPoints(records: List<FuelRecord>): List<ReportFuel
             if (previousAnchor != null) {
                 val distanceKm = record.odometerKm - previousAnchor.odometerKm
                 val economy = calculateMilliKmPerLiter(distanceKm, accumulatedVolumeMl)
-                if (economy != null) {
+                if (economy != null && record.fuelEconomyStatisticsStatus != FuelEconomyStatisticsStatus.EXCLUDED) {
                     points += ReportFuelEconomyPoint(
                         vehicleId = vehicleId,
                         dateEpochDay = record.dateEpochDay,

@@ -23,6 +23,9 @@ import com.kumo.bubu.data.repository.CpcFuelPriceRepository
 import com.kumo.bubu.data.repository.OfflineCsvExportRepository
 import com.kumo.bubu.data.repository.OfflineBackupRepository
 import com.kumo.bubu.data.repository.OfflineRestoreRepository
+import com.kumo.bubu.data.repository.OfflineCloudBackupRepository
+import com.kumo.bubu.data.repository.DataStoreCloudBackupConnection
+import com.kumo.bubu.data.cloud.drive.HttpGoogleDriveBackupDataSource
 import com.kumo.bubu.domain.repository.ExpenseRepository
 import com.kumo.bubu.domain.repository.FuelRepository
 import com.kumo.bubu.domain.repository.ServiceRepository
@@ -37,6 +40,7 @@ import com.kumo.bubu.domain.repository.CsvExportRepository
 import com.kumo.bubu.domain.repository.BackupRepository
 import com.kumo.bubu.domain.repository.RestoreRepository
 import com.kumo.bubu.domain.repository.ReportLayoutSettings
+import com.kumo.bubu.domain.repository.CloudBackupRepository
 import com.kumo.bubu.core.notification.ReminderNotificationScheduler
 import com.kumo.bubu.core.notification.ReminderNotifications
 import com.kumo.bubu.core.notification.WorkManagerReminderNotificationScheduler
@@ -71,32 +75,29 @@ class AppContainer(context: Context) {
         carSeed("oil-filter", R.string.service_default_car_oil_filter, true),
         carSeed("air-filter", R.string.service_default_car_air_filter, true),
         carSeed("cabin-filter", R.string.service_default_car_cabin_filter, true),
-        carSeed("brake-fluid", R.string.service_default_car_brake_fluid, true),
-        carSeed("spark-plugs", R.string.service_default_car_spark_plugs, true),
-        carSeed("transmission-oil", R.string.service_default_car_transmission_oil, true),
         carSeed("tires", R.string.service_default_car_tires, true),
-        carSeed("coolant", R.string.service_default_car_coolant), carSeed("brake-pads", R.string.service_default_car_brake_pads),
-        carSeed("battery", R.string.service_default_car_battery), carSeed("wipers", R.string.service_default_car_wipers),
-        carSeed("alignment", R.string.service_default_car_alignment), carSeed("balancing", R.string.service_default_car_balancing),
-        carSeed("ac-system", R.string.service_default_car_ac_system), carSeed("throttle", R.string.service_default_car_throttle),
-        carSeed("injector", R.string.service_default_car_injector), carSeed("carbon", R.string.service_default_car_carbon),
-        carSeed("engine-belt", R.string.service_default_car_engine_belt), carSeed("shocks", R.string.service_default_car_shocks),
-        carSeed("chassis", R.string.service_default_car_chassis), carSeed("other", R.string.built_in_service_type_other),
+        carSeed("tire-rotation", R.string.service_default_car_tire_rotation, true),
+        carSeed("brake-pads", R.string.service_default_car_brake_pads, true),
+        carSeed("brake-fluid", R.string.service_default_car_brake_fluid, true),
+        carSeed("transmission-oil", R.string.service_default_car_transmission_oil, true),
+        carSeed("coolant", R.string.service_default_car_coolant),
+        carSeed("spark-plugs", R.string.service_default_car_spark_plugs),
+        carSeed("battery", R.string.service_default_car_battery),
+        carSeed("wipers", R.string.service_default_car_wipers),
+        carSeed("engine-belt", R.string.service_default_car_engine_belt),
+        carSeed("shocks", R.string.service_default_car_shocks),
+        carSeed("chassis", R.string.service_default_car_chassis),
         motorcycleSeed("engine-oil", R.string.service_default_motorcycle_engine_oil, true),
         motorcycleSeed("gear-oil", R.string.service_default_motorcycle_gear_oil, true),
         motorcycleSeed("air-filter", R.string.service_default_motorcycle_air_filter, true),
-        motorcycleSeed("spark-plugs", R.string.service_default_motorcycle_spark_plugs, true),
+        motorcycleSeed("drive-air-filter", R.string.service_default_motorcycle_drive_air_filter, true),
+        motorcycleSeed("spark-plug", R.string.service_default_motorcycle_spark_plug, true),
         motorcycleSeed("brake-pads", R.string.service_default_motorcycle_brake_pads, true),
-        motorcycleSeed("drive-belt", R.string.service_default_motorcycle_drive_belt, true),
-        motorcycleSeed("variator", R.string.service_default_motorcycle_variator, true),
-        motorcycleSeed("tires", R.string.service_default_motorcycle_tires, true),
-        motorcycleSeed("oil-filter", R.string.service_default_motorcycle_oil_filter), motorcycleSeed("brake-fluid", R.string.service_default_motorcycle_brake_fluid),
-        motorcycleSeed("drive-clean", R.string.service_default_motorcycle_drive_clean), motorcycleSeed("clutch", R.string.service_default_motorcycle_clutch),
-        motorcycleSeed("bell", R.string.service_default_motorcycle_bell), motorcycleSeed("battery", R.string.service_default_motorcycle_battery),
-        motorcycleSeed("throttle", R.string.service_default_motorcycle_throttle), motorcycleSeed("injector", R.string.service_default_motorcycle_injector),
-        motorcycleSeed("valve", R.string.service_default_motorcycle_valve), motorcycleSeed("front-suspension", R.string.service_default_motorcycle_front_suspension),
-        motorcycleSeed("rear-suspension", R.string.service_default_motorcycle_rear_suspension), motorcycleSeed("coolant", R.string.service_default_motorcycle_coolant),
-        motorcycleSeed("brake-system", R.string.service_default_motorcycle_brake_system), motorcycleSeed("other", R.string.built_in_service_type_other),
+        motorcycleSeed("brake-fluid", R.string.service_default_motorcycle_brake_fluid),
+        motorcycleSeed("front-tire", R.string.service_default_motorcycle_front_tire),
+        motorcycleSeed("rear-tire", R.string.service_default_motorcycle_rear_tire),
+        motorcycleSeed("drive-belt", R.string.service_default_motorcycle_drive_belt),
+        motorcycleSeed("battery", R.string.service_default_motorcycle_battery),
     )
     internal val database = Room.databaseBuilder(
         applicationContext,
@@ -112,6 +113,9 @@ class AppContainer(context: Context) {
         BuBuDatabase.MIGRATION_7_8,
         BuBuDatabase.MIGRATION_8_9,
         BuBuDatabase.MIGRATION_9_10,
+        BuBuDatabase.MIGRATION_10_11,
+        BuBuDatabase.MIGRATION_11_12,
+        BuBuDatabase.MIGRATION_12_13,
     )
         .build()
 
@@ -189,6 +193,13 @@ class AppContainer(context: Context) {
         database = database,
         attachmentStore = serviceAttachmentStore,
         backupRepository = offlineBackupRepository,
+    )
+
+    val cloudBackupRepository: CloudBackupRepository = OfflineCloudBackupRepository(
+        context = applicationContext,
+        backupRepository = offlineBackupRepository,
+        driveDataSource = HttpGoogleDriveBackupDataSource(),
+        connectionStore = DataStoreCloudBackupConnection(preferences),
     )
 
     val statutoryReminderSettings: StatutoryReminderSettings =

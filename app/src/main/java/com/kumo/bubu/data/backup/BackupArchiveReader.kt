@@ -70,6 +70,7 @@ object BackupArchiveReader {
         require(data.serviceItems.uniquePublicIds(BackupServiceItem::publicId)) { "Backup contains duplicate service-item identifiers." }
         require(data.expenseRecords.uniquePublicIds(BackupExpenseRecord::publicId)) { "Backup contains duplicate expense identifiers." }
         require(data.reminders.uniquePublicIds(BackupReminder::publicId)) { "Backup contains duplicate reminder identifiers." }
+        require(data.serviceReminderPreferences.uniquePublicIds(BackupServiceReminderPreference::publicId)) { "Backup contains duplicate service reminder preference identifiers." }
         require(data.attachments.uniquePublicIds(BackupAttachment::publicId)) { "Backup contains duplicate attachment identifiers." }
         val vehicleIds = data.vehicles.mapTo(mutableSetOf(), BackupVehicle::publicId)
         val typeIds = data.serviceTypes.mapTo(mutableSetOf(), BackupServiceType::publicId)
@@ -86,6 +87,9 @@ object BackupArchiveReader {
                 (reminder.sourceServiceItemPublicId == null || reminder.sourceServiceItemPublicId in itemIds) &&
                 (reminder.completedByServiceRecordPublicId == null || reminder.completedByServiceRecordPublicId in serviceIds) &&
                 (reminder.completedByExpenseRecordPublicId == null || reminder.completedByExpenseRecordPublicId in expenseIds)
+        })
+        require(data.serviceReminderPreferences.all { preference ->
+            preference.vehiclePublicId in vehicleIds && preference.serviceTypePublicId in typeIds
         })
         require(data.attachments.all { it.serviceRecordPublicId in serviceIds })
         require(data.attachments.map(BackupAttachment::archivePath).toSet() == manifest.files

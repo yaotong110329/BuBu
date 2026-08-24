@@ -2,6 +2,7 @@ package com.kumo.bubu.data.mapper
 
 import com.kumo.bubu.domain.model.FuelProduct
 import com.kumo.bubu.domain.model.FuelRecordInput
+import com.kumo.bubu.domain.model.FuelEconomyStatisticsStatus
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -38,6 +39,19 @@ class FuelRecordMapperTest {
         assertEquals(9L, updated.createdAt)
         assertEquals(10L, updated.updatedAt)
         assertEquals(1_500L, updated.odometerKm)
+    }
+
+    @Test
+    fun mapsTheFuelEconomyStatisticsDecisionWithoutChangingFuelData() {
+        val record = input()
+            .copy(fuelEconomyStatisticsStatus = FuelEconomyStatisticsStatus.EXCLUDED)
+            .toNewEntity("fuel-public-id", sequenceInDay = 2, nowEpochMillis = 9)
+            .copy(id = 8)
+            .toDomain()
+
+        assertEquals(FuelEconomyStatisticsStatus.EXCLUDED, record.fuelEconomyStatisticsStatus)
+        assertEquals(4_270L, record.fuelVolumeMl)
+        assertEquals(135L, record.totalCostTwd)
     }
 
     private fun input() = FuelRecordInput(

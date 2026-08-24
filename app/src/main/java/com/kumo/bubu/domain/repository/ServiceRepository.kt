@@ -5,6 +5,8 @@ import com.kumo.bubu.domain.model.ServiceRecordDetails
 import com.kumo.bubu.domain.model.ServiceRecordInput
 import com.kumo.bubu.domain.model.ServiceType
 import com.kumo.bubu.domain.model.ServiceTypeInput
+import com.kumo.bubu.domain.model.ServiceReminderPreference
+import com.kumo.bubu.domain.model.ServiceReminderPreferenceInput
 import com.kumo.bubu.domain.model.StagedServiceAttachment
 import kotlinx.coroutines.flow.Flow
 
@@ -22,6 +24,9 @@ interface ServiceRepository {
     suspend fun setServiceTypeArchived(id: Long, archived: Boolean)
     suspend fun deleteCustomServiceType(id: Long)
     suspend fun reorderServiceTypes(orderedIds: List<Long>)
+    fun observeServiceReminderPreferences(vehicleId: Long): kotlinx.coroutines.flow.Flow<List<ServiceReminderPreference>>
+    fun observeAllServiceReminderPreferences(): Flow<List<ServiceReminderPreference>>
+    suspend fun saveServiceReminderPreference(input: ServiceReminderPreferenceInput)
     suspend fun stageServiceAttachments(sourceUriStrings: List<String>): List<StagedServiceAttachment>
     suspend fun discardStagedServiceAttachment(relativePath: String)
     suspend fun readServiceAttachmentBytes(relativePath: String): ByteArray?

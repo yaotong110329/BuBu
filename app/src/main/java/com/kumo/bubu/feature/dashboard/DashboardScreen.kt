@@ -49,7 +49,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kumo.bubu.R
 import com.kumo.bubu.domain.model.VehicleType
 import com.kumo.bubu.domain.model.toFuelEconomyDisplayText
-import java.time.LocalDate
 
 @Composable
 fun DashboardRoute(
@@ -115,18 +114,6 @@ fun DashboardScreen(
                         onAddRecord = { selectedVehicleId = vehicle.vehicleId },
                     )
                 }
-                if (state.recentRecords.isNotEmpty()) {
-                    item { Text(stringResource(R.string.dashboard_recent_records), style = MaterialTheme.typography.titleLarge) }
-                    items(
-                        state.recentRecords,
-                        key = { record ->
-                            val type = if (record is DashboardRecentRecord.Fuel) "fuel" else "service"
-                            "$type-${record.id}"
-                        },
-                    ) { record ->
-                        RecentRecordCard(record) { onOpenVehicleHistory(record.vehicleId) }
-                    }
-                }
             }
         }
     }
@@ -143,35 +130,6 @@ fun DashboardScreen(
                 selectedVehicleId = null
                 onAddService(vehicle.vehicleId)
             },
-        )
-    }
-}
-
-@Composable
-private fun RecentRecordCard(record: DashboardRecentRecord, onClick: () -> Unit) {
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-    ) {
-        ListItem(
-            headlineContent = {
-                Text(
-                    when (record) {
-                        is DashboardRecentRecord.Fuel -> stringResource(R.string.dashboard_recent_fuel)
-                        is DashboardRecentRecord.Service -> record.title
-                    },
-                )
-            },
-            supportingContent = {
-                Text(stringResource(R.string.dashboard_recent_record_meta, record.vehicleName, LocalDate.ofEpochDay(record.dateEpochDay).toString()))
-            },
-            leadingContent = {
-                Icon(
-                    if (record is DashboardRecentRecord.Fuel) Icons.Filled.LocalGasStation else Icons.Filled.Build,
-                    contentDescription = null,
-                )
-            },
-            trailingContent = { Text(stringResource(R.string.dashboard_recent_record_cost, record.totalCostTwd)) },
         )
     }
 }
@@ -243,6 +201,29 @@ fun VehicleDashboardCard(
                     containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                 )
             }
+            vehicle.maintenanceRemainingKm?.let { remainingKm ->
+                Text(
+                    text = vehicle.maintenanceEstimatedDays?.let { days ->
+                        stringResource(
+                            R.string.dashboard_maintenance_remaining_with_days,
+                            remainingKm.coerceAtLeast(0L),
+                            days,
+                        )
+                    } ?: stringResource(
+                        R.string.dashboard_maintenance_remaining_insufficient,
+                        remainingKm.coerceAtLeast(0L),
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(
+                text = vehicle.fuelPredictionDays?.let { days ->
+                    stringResource(R.string.dashboard_fuel_prediction, days)
+                } ?: stringResource(R.string.dashboard_fuel_prediction_unavailable),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

@@ -7,7 +7,9 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.lifecycle.viewModelScope
 import com.kumo.bubu.domain.model.FuelProduct
 import com.kumo.bubu.domain.model.FuelingMode
+import com.kumo.bubu.domain.model.FuelRecord
 import com.kumo.bubu.domain.model.applyToCpcListPrice
+import com.kumo.bubu.domain.model.detectFuelEconomyOutlier
 import com.kumo.bubu.domain.model.toScaledDecimalText
 import com.kumo.bubu.domain.repository.FuelPriceRepository
 import com.kumo.bubu.domain.repository.FuelRepository
@@ -19,6 +21,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class FuelFormViewModel(
@@ -66,11 +69,17 @@ class FuelFormViewModel(
             updateField { copy(fuelingMode = event.value, priceSource = FuelPriceSource.NONE, priceEffectiveDateEpochDay = null) }
             refreshPriceIfNewRecord()
         }
+        is FuelFormEvent.FuelEconomyStatisticsStatusChanged -> updateField {
+            copy(fuelEconomyStatisticsStatus = event.value)
+        }
         FuelFormEvent.RefreshPrice -> refreshPriceIfNewRecord()
         is FuelFormEvent.NoteChanged -> updateField { copy(note = event.value) }
         is FuelFormEvent.OdometerOrderReasonChanged -> _uiState.update { it.copy(odometerOrderReason = event.value, odometerOrderReasonRequired = false) }
         FuelFormEvent.ConfirmOdometerOrder -> confirmOdometerOrder()
         FuelFormEvent.DismissOdometerOrder -> _uiState.update { it.copy(odometerOrderWarning = null, odometerOrderReason = "", odometerOrderReasonRequired = false, pendingSaveInput = null) }
+        FuelFormEvent.ConfirmFuelEconomyOutlier -> confirmFuelEconomyOutlier()
+        FuelFormEvent.ExcludeFuelEconomyOutlier -> excludeFuelEconomyOutlier()
+        FuelFormEvent.DismissFuelEconomyOutlier -> _uiState.update { it.copy(fuelEconomyOutlier = null, pendingSaveInput = null) }
         FuelFormEvent.Save -> save()
     }
 
@@ -152,7 +161,7 @@ class FuelFormViewModel(
     private fun loadFuelRecord(id: Long) = viewModelScope.launch {
         runCatching { fuelRepository.getFuelRecord(id) }.onSuccess { record ->
             if (record == null) _uiState.update { it.copy(isLoading = false, saveFailed = true) }
-            else _uiState.update { state -> state.copy(selectedVehicleId = record.vehicleId, date = LocalDate.ofEpochDay(record.dateEpochDay).toString(), time = record.timeMinuteOfDay?.let(::minuteOfDayToText).orEmpty(), odometerKm = record.odometerKm.toString(), volumeLiters = record.fuelVolumeMl.toScaledDecimalText(3), pricePerLiter = record.pricePerLiterMilli?.toScaledDecimalText(3).orEmpty(), totalCostTwd = record.totalCostTwd.toString(), isFullTank = record.isFullTank, fuelProduct = record.fuelProduct, fuelingMode = record.fuelingMode, note = record.note.orEmpty(), calculationSources = emptyList(), calculatedField = null, isLoading = state.activeVehicles.isEmpty()) }
+            else _uiState.update { state -> state.copy(selectedVehicleId = record.vehicleId, date = LocalDate.ofEpochDay(record.dateEpochDay).toString(), time = record.timeMinuteOfDay?.let(::minuteOfDayToText).orEmpty(), odometerKm = record.odometerKm.toString(), volumeLiters = record.fuelVolumeMl.toScaledDecimalText(3), pricePerLiter = record.pricePerLiterMilli?.toScaledDecimalText(3).orEmpty(), totalCostTwd = record.totalCostTwd.toString(), isFullTank = record.isFullTank, fuelProduct = record.fuelProduct, fuelingMode = record.fuelingMode, fuelEconomyStatisticsStatus = record.fuelEconomyStatisticsStatus, note = record.note.orEmpty(), calculationSources = emptyList(), calculatedField = null, isLoading = state.activeVehicles.isEmpty()) }
         }.onFailure { _uiState.update { it.copy(isLoading = false, saveFailed = true) } }
     }
 
@@ -161,7 +170,7 @@ class FuelFormViewModel(
         val validation = _uiState.value.validate()
         val input = validation.input ?: run { _uiState.update { it.copy(errors = validation.errors) }; return }
         _uiState.update { it.copy(isSaving = true, saveFailed = false) }
-        viewModelScope.launch { runCatching { fuelRepository.getOdometerNeighbors(input, fuelRecordId) }.onSuccess { neighbors -> if (neighbors.breaksOrder(input.odometerKm)) _uiState.update { it.copy(isSaving = false, odometerOrderWarning = neighbors, odometerOrderReason = "", odometerOrderReasonRequired = false, pendingSaveInput = input) } else persist(input) }.onFailure { _uiState.update { it.copy(isSaving = false, saveFailed = true) } } }
+        viewModelScope.launch { runCatching { fuelRepository.getOdometerNeighbors(input, fuelRecordId) }.onSuccess { neighbors -> if (neighbors.breaksOrder(input.odometerKm)) _uiState.update { it.copy(isSaving = false, odometerOrderWarning = neighbors, odometerOrderReason = "", odometerOrderReasonRequired = false, pendingSaveInput = input) } else checkFuelEconomyOutlier(input) }.onFailure { _uiState.update { it.copy(isSaving = false, saveFailed = true) } } }
     }
 
     private fun confirmOdometerOrder() {
@@ -170,7 +179,53 @@ class FuelFormViewModel(
         val input = state.pendingSaveInput ?: return
         if (state.odometerOrderReason.isBlank()) { _uiState.update { it.copy(odometerOrderReasonRequired = true) }; return }
         _uiState.update { it.copy(isSaving = true, odometerOrderWarning = null) }
-        viewModelScope.launch { persist(input) }
+        viewModelScope.launch { checkFuelEconomyOutlier(input) }
+    }
+
+    private suspend fun checkFuelEconomyOutlier(input: com.kumo.bubu.domain.model.FuelRecordInput) {
+        val existing = runCatching {
+            fuelRepository.observeFuelRecords(input.vehicleId).first()
+                .filter { it.id != fuelRecordId }
+        }.getOrElse {
+            _uiState.update { state -> state.copy(isSaving = false, saveFailed = true) }
+            return
+        }
+        val candidate = FuelRecord(
+            id = Long.MIN_VALUE,
+            publicId = "pending",
+            vehicleId = input.vehicleId,
+            dateEpochDay = input.dateEpochDay,
+            timeMinuteOfDay = input.timeMinuteOfDay,
+            sequenceInDay = Int.MAX_VALUE,
+            odometerKm = input.odometerKm,
+            fuelVolumeMl = input.fuelVolumeMl,
+            pricePerLiterMilli = input.pricePerLiterMilli,
+            totalCostTwd = input.totalCostTwd,
+            isFullTank = input.isFullTank,
+            fuelProduct = input.fuelProduct,
+            fuelingMode = input.fuelingMode,
+            fuelEconomyStatisticsStatus = input.fuelEconomyStatisticsStatus,
+            note = input.note,
+            createdAt = 0,
+            updatedAt = 0,
+        )
+        val outlier = detectFuelEconomyOutlier(existing, candidate)
+        if (outlier == null) persist(input)
+        else _uiState.update { it.copy(isSaving = false, fuelEconomyOutlier = outlier, pendingSaveInput = input) }
+    }
+
+    private fun confirmFuelEconomyOutlier() {
+        val input = _uiState.value.pendingSaveInput ?: return
+        if (_uiState.value.isSaving) return
+        _uiState.update { it.copy(isSaving = true, fuelEconomyOutlier = null) }
+        viewModelScope.launch { persist(input.copy(fuelEconomyStatisticsStatus = com.kumo.bubu.domain.model.FuelEconomyStatisticsStatus.INCLUDED)) }
+    }
+
+    private fun excludeFuelEconomyOutlier() {
+        val input = _uiState.value.pendingSaveInput ?: return
+        if (_uiState.value.isSaving) return
+        _uiState.update { it.copy(isSaving = true, fuelEconomyOutlier = null) }
+        viewModelScope.launch { persist(input.copy(fuelEconomyStatisticsStatus = com.kumo.bubu.domain.model.FuelEconomyStatisticsStatus.EXCLUDED)) }
     }
 
     private suspend fun persist(input: com.kumo.bubu.domain.model.FuelRecordInput) = runCatching { fuelRecordId?.let { fuelRepository.updateFuelRecord(it, input) } ?: fuelRepository.createFuelRecord(input) }.onSuccess { _uiState.update { it.copy(isSaving = false, pendingSaveInput = null) }; effectChannel.send(FuelFormEffect.Saved) }.onFailure { _uiState.update { it.copy(isSaving = false, saveFailed = true) } }

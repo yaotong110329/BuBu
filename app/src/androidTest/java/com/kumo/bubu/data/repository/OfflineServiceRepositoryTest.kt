@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.kumo.bubu.core.database.BuBuDatabase
 import com.kumo.bubu.data.attachment.PrivateAttachmentStore
+import com.kumo.bubu.data.local.entity.ServiceTypeEntity
 import com.kumo.bubu.data.local.entity.VehicleEntity
 import com.kumo.bubu.domain.model.ServiceAttachmentInput
 import com.kumo.bubu.domain.model.BuiltInServiceTypeSeed
@@ -100,7 +101,29 @@ class OfflineServiceRepositoryTest {
             ),
             types.map { it.publicId },
         )
-        assertEquals(listOf("機油", "機油", "其他", "其他"), types.map { it.name })
+        assertEquals(listOf("機油", "其他", "機油", "其他"), types.map { it.name })
+    }
+
+    @Test
+    fun defaultSeedRefreshArchivesObsoleteBuiltInsWithoutDeletingThem() = runBlocking {
+        val obsoleteId = database.serviceTypeDao().insert(
+            ServiceTypeEntity(
+                publicId = "builtin-car-legacy-item",
+                name = "舊內建項目",
+                vehicleType = VehicleType.CAR,
+                isBuiltIn = true,
+                isArchived = false,
+                sortOrder = 0,
+                createdAt = 1,
+                updatedAt = 1,
+            ),
+        )
+
+        repository.ensureDefaultServiceTypes()
+
+        val obsolete = requireNotNull(database.serviceTypeDao().getById(obsoleteId))
+        assertTrue(obsolete.isArchived)
+        assertEquals("舊內建項目", obsolete.name)
     }
 
     @Test

@@ -8,6 +8,7 @@ import com.kumo.bubu.data.local.entity.ServiceRecordEntity
 import com.kumo.bubu.data.local.entity.ServiceTypeEntity
 import com.kumo.bubu.data.local.entity.VehicleEntity
 import com.kumo.bubu.data.local.entity.VehicleReminderEntity
+import com.kumo.bubu.data.local.entity.VehicleServiceReminderPreferenceEntity
 import kotlinx.serialization.Serializable
 
 data class BackupDataSource(
@@ -18,6 +19,7 @@ data class BackupDataSource(
     val serviceItems: List<ServiceItemEntity>,
     val expenseRecords: List<ExpenseRecordEntity>,
     val reminders: List<VehicleReminderEntity>,
+    val serviceReminderPreferences: List<VehicleServiceReminderPreferenceEntity> = emptyList(),
     val attachments: List<ServiceAttachmentEntity>,
 )
 
@@ -40,6 +42,7 @@ data class BackupData(
     val serviceItems: List<BackupServiceItem>,
     val expenseRecords: List<BackupExpenseRecord>,
     val reminders: List<BackupReminder>,
+    val serviceReminderPreferences: List<BackupServiceReminderPreference> = emptyList(),
     val attachments: List<BackupAttachment>,
 )
 
@@ -83,6 +86,7 @@ data class BackupFuelRecord(
     val createdAt: Long,
     val updatedAt: Long,
     val fuelingMode: String = "FULL_SERVICE",
+    val fuelEconomyStatisticsStatus: String = "UNREVIEWED",
 )
 
 @Serializable
@@ -173,6 +177,19 @@ data class BackupReminder(
 )
 
 @Serializable
+data class BackupServiceReminderPreference(
+    val publicId: String,
+    val vehiclePublicId: String,
+    val serviceTypePublicId: String,
+    val isEnabled: Boolean,
+    val intervalKm: Long?,
+    val baseOdometerKm: Long? = null,
+    val sortOrder: Int,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+@Serializable
 data class BackupAttachment(
     val publicId: String,
     val serviceRecordPublicId: String,
@@ -218,6 +235,14 @@ object BackupDataBuilder {
                         entity.completedByExpenseRecordId?.let(expenseIds::get),
                     )
                 },
+                serviceReminderPreferences = source.serviceReminderPreferences.map { entity ->
+                    entity.toBackup(
+                        vehiclePublicId(entity.vehicleId),
+                        requireNotNull(serviceTypeIds[entity.serviceTypeId]) {
+                            "Backup references a missing service type."
+                        },
+                    )
+                },
                 attachments = source.attachments.map { entity ->
                     entity.toBackup(serviceRecordPublicId(entity.serviceRecordId), attachmentArchivePath(entity.publicId))
                 },
@@ -229,12 +254,13 @@ object BackupDataBuilder {
     }
 
     private fun VehicleEntity.toBackup() = BackupVehicle(publicId, name, vehicleType.name, motorcycleClass?.name, brand, model, manufactureYear, engineDisplacementCc, licensePlate, powertrainType?.name, trackingStartDateEpochDay, trackingStartOdometerKm, currentOdometerKm, note, isArchived, createdAt, updatedAt, primaryInspectionMonthDay?.toString(), secondaryInspectionMonthDay?.toString())
-    private fun FuelRecordEntity.toBackup(vehiclePublicId: String) = BackupFuelRecord(publicId, vehiclePublicId, dateEpochDay, timeMinuteOfDay, sequenceInDay, odometerKm, fuelVolumeMl, pricePerLiterMilli, totalCostTwd, isFullTank, fuelProduct?.name, note, createdAt, updatedAt, fuelingMode.name)
+    private fun FuelRecordEntity.toBackup(vehiclePublicId: String) = BackupFuelRecord(publicId, vehiclePublicId, dateEpochDay, timeMinuteOfDay, sequenceInDay, odometerKm, fuelVolumeMl, pricePerLiterMilli, totalCostTwd, isFullTank, fuelProduct?.name, note, createdAt, updatedAt, fuelingMode.name, fuelEconomyStatisticsStatus.name)
     private fun ServiceTypeEntity.toBackup() = BackupServiceType(publicId, name, vehicleType.name, isBuiltIn, isArchived, sortOrder, createdAt, updatedAt)
     private fun ServiceRecordEntity.toBackup(vehiclePublicId: String) = BackupServiceRecord(publicId, vehiclePublicId, dateEpochDay, timeMinuteOfDay, sequenceInDay, odometerKm, recordType.name, title, paymentMethod?.name, totalCostTwd, note, createdAt, updatedAt)
     private fun ServiceItemEntity.toBackup(serviceRecordPublicId: String, serviceTypePublicId: String?) = BackupServiceItem(publicId, serviceRecordPublicId, serviceTypePublicId, sequenceInRecord, nameSnapshot, quantityMilli, quantityUnit.name, unitPriceTwd, subtotalTwd, nextDueOdometerKm, nextDueDateEpochDay, note, createdAt, updatedAt)
     private fun ExpenseRecordEntity.toBackup(vehiclePublicId: String, completedReminderPublicId: String?) = BackupExpenseRecord(publicId, vehiclePublicId, dateEpochDay, timeMinuteOfDay, sequenceInDay, category.name, totalCostTwd, note, createdAt, updatedAt, completedReminderPublicId)
     private fun VehicleReminderEntity.toBackup(vehiclePublicId: String, sourceServiceItemPublicId: String?, completedByServiceRecordPublicId: String?, completedByExpenseRecordPublicId: String?) = BackupReminder(publicId, vehiclePublicId, source.name, sourceServiceItemPublicId, title, dueOdometerKm, dueDateEpochDay, completedByServiceRecordPublicId, completedAt, snoozedUntilEpochDay, lastNotifiedStatus?.name, isEnabled, createdAt, updatedAt, automaticKey, ruleVersion, ruleVerifiedEpochDay, estimatedNotificationEpochDay, lastNotifiedTrigger, referenceDateEpochDay, completedByExpenseRecordPublicId)
+    private fun VehicleServiceReminderPreferenceEntity.toBackup(vehiclePublicId: String, serviceTypePublicId: String) = BackupServiceReminderPreference(publicId, vehiclePublicId, serviceTypePublicId, isEnabled, intervalKm, baseOdometerKm, sortOrder, createdAt, updatedAt)
     private fun ServiceAttachmentEntity.toBackup(serviceRecordPublicId: String, archivePath: String) = BackupAttachment(publicId, serviceRecordPublicId, sequenceInRecord, displayName, mimeType, createdAt, updatedAt, archivePath)
     private fun attachmentArchivePath(publicId: String) = "attachments/$publicId"
 }

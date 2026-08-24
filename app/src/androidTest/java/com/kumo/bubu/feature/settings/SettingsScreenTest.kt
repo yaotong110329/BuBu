@@ -10,6 +10,9 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import com.kumo.bubu.core.ui.theme.BuBuTheme
+import com.kumo.bubu.domain.model.CloudBackup
+import com.kumo.bubu.domain.model.CloudBackupAccount
+import com.kumo.bubu.domain.model.CloudBackupConnection
 import org.junit.Assert.assertFalse
 import org.junit.Rule
 import org.junit.Test
@@ -64,4 +67,78 @@ class SettingsScreenTest {
             .performScrollToNode(hasTestTag("settings-restore-backup"))
         composeRule.onNodeWithTag("settings-restore-backup").assertIsDisplayed()
     }
+
+    @Test
+    fun showsConnectGoogleDriveForAnUnlinkedInstallation() {
+        var connectRequested = false
+        composeRule.setContent {
+            BuBuTheme {
+                SettingsScreen(
+                    onManageVehicles = {},
+                    onManageServiceSettings = {},
+                    onConnectGoogleDrive = { connectRequested = true },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("settings-scroll-list")
+            .performScrollToNode(hasTestTag("settings-google-drive-connect"))
+        composeRule.onNodeWithTag("settings-google-drive-connect").performClick()
+
+        org.junit.Assert.assertTrue(connectRequested)
+    }
+
+    @Test
+    fun showsConnectedGoogleDriveBackupActions() {
+        composeRule.setContent {
+            BuBuTheme {
+                SettingsScreen(
+                    onManageVehicles = {},
+                    onManageServiceSettings = {},
+                    cloudBackupUiState = CloudBackupUiState(
+                        connection = CloudBackupConnection.Connected(
+                            CloudBackupAccount("driver@example.com", lastCloudBackupAtEpochMillis = 1),
+                        ),
+                        isUploading = true,
+                    ),
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("settings-scroll-list")
+            .performScrollToNode(hasTestTag("settings-google-drive-backup"))
+        composeRule.onNodeWithText("driver@example.com").assertIsDisplayed()
+        composeRule.onNodeWithText("正在備份到 Google Drive…").assertIsDisplayed()
+        composeRule.onNodeWithTag("settings-google-drive-backup").assertIsDisplayed()
+    }
+
+    @Test
+    fun displaysCloudBackupListBeforeDownload() {
+        composeRule.setContent {
+            BuBuTheme {
+                CloudBackupListDialog(
+                    state = CloudBackupUiState(backups = listOf(cloudBackup())),
+                    onDismiss = {},
+                    onRefresh = {},
+                    onDownload = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("2 台車 · 168 筆加油 · 41 筆保養", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("下載並預覽").assertIsDisplayed()
+    }
+
+    private fun cloudBackup() = CloudBackup(
+        id = "backup",
+        fileName = "bubu-backup-2026-08-24-163000.bubu",
+        createdAtEpochMillis = 1,
+        modifiedAtEpochMillis = 1,
+        sizeBytes = 1024,
+        appVersion = "1.1.0",
+        formatVersion = 1,
+        vehicleCount = 2,
+        fuelRecordCount = 168,
+        maintenanceRecordCount = 41,
+    )
 }

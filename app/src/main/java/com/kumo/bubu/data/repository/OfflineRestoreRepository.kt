@@ -18,6 +18,7 @@ import com.kumo.bubu.data.local.entity.ServiceRecordEntity
 import com.kumo.bubu.data.local.entity.ServiceTypeEntity
 import com.kumo.bubu.data.local.entity.VehicleEntity
 import com.kumo.bubu.data.local.entity.VehicleReminderEntity
+import com.kumo.bubu.data.local.entity.VehicleServiceReminderPreferenceEntity
 import com.kumo.bubu.domain.model.ExpenseCategory
 import com.kumo.bubu.domain.model.FuelProduct
 import com.kumo.bubu.domain.model.FuelingMode
@@ -253,6 +254,9 @@ class OfflineRestoreRepository(
                     isFullTank = fuel.isFullTank,
                     fuelProduct = fuel.fuelProduct?.let(FuelProduct::valueOf),
                     fuelingMode = runCatching { FuelingMode.valueOf(fuel.fuelingMode) }.getOrDefault(FuelingMode.FULL_SERVICE),
+                    fuelEconomyStatisticsStatus = runCatching {
+                        com.kumo.bubu.domain.model.FuelEconomyStatisticsStatus.valueOf(fuel.fuelEconomyStatisticsStatus)
+                    }.getOrDefault(com.kumo.bubu.domain.model.FuelEconomyStatisticsStatus.UNREVIEWED),
                     note = fuel.note,
                     createdAt = fuel.createdAt,
                     updatedAt = fuel.updatedAt,
@@ -289,6 +293,21 @@ class OfflineRestoreRepository(
                     note = record.note,
                     createdAt = record.createdAt,
                     updatedAt = record.updatedAt,
+                ),
+            )
+        }
+        data.serviceReminderPreferences.forEach { preference ->
+            database.vehicleServiceReminderPreferenceDao().insert(
+                VehicleServiceReminderPreferenceEntity(
+                    publicId = preference.publicId,
+                    vehicleId = vehicleIds.requireValue(preference.vehiclePublicId),
+                    serviceTypeId = serviceTypeIds.requireValue(preference.serviceTypePublicId),
+                    isEnabled = preference.isEnabled,
+                    intervalKm = preference.intervalKm,
+                    baseOdometerKm = preference.baseOdometerKm,
+                    sortOrder = preference.sortOrder,
+                    createdAt = preference.createdAt,
+                    updatedAt = preference.updatedAt,
                 ),
             )
         }

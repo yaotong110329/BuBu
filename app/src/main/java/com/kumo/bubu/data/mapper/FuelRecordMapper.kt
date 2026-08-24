@@ -18,6 +18,7 @@ fun FuelRecordEntity.toDomain(): FuelRecord = FuelRecord(
     isFullTank = isFullTank,
     fuelProduct = fuelProduct,
     fuelingMode = fuelingMode,
+    fuelEconomyStatisticsStatus = fuelEconomyStatisticsStatus,
     note = note,
     createdAt = createdAt,
     updatedAt = updatedAt,
@@ -40,6 +41,7 @@ fun FuelRecordInput.toNewEntity(
     isFullTank = isFullTank,
     fuelProduct = fuelProduct,
     fuelingMode = fuelingMode,
+    fuelEconomyStatisticsStatus = fuelEconomyStatisticsStatus,
     note = note,
     createdAt = nowEpochMillis,
     updatedAt = nowEpochMillis,
@@ -61,6 +63,7 @@ fun FuelRecordInput.toUpdatedEntity(
     isFullTank = isFullTank,
     fuelProduct = fuelProduct,
     fuelingMode = fuelingMode,
+    fuelEconomyStatisticsStatus = fuelEconomyStatisticsStatus,
     note = note,
     updatedAt = nowEpochMillis,
 )

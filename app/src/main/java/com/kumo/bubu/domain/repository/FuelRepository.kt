@@ -4,6 +4,7 @@ import com.kumo.bubu.domain.model.FuelRecord
 import com.kumo.bubu.domain.model.FuelRecordInput
 import com.kumo.bubu.domain.model.FuelProduct
 import com.kumo.bubu.domain.model.FuelingMode
+import com.kumo.bubu.domain.model.FuelEconomyStatisticsStatus
 import kotlinx.coroutines.flow.Flow
 
 data class FuelOdometerNeighbors(
@@ -38,6 +39,8 @@ interface FuelRepository {
     suspend fun createFuelRecord(input: FuelRecordInput): Long
 
     suspend fun updateFuelRecord(id: Long, input: FuelRecordInput)
+
+    suspend fun setFuelEconomyStatisticsStatus(id: Long, status: FuelEconomyStatisticsStatus)
 
     suspend fun deleteFuelRecord(id: Long)
 }

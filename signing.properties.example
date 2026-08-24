@@ -1,0 +1,5 @@
+# Copy to the ignored signing.properties file and replace every placeholder.
+BUBU_RELEASE_STORE_FILE=path/to/bubu-release.jks
+BUBU_RELEASE_STORE_PASSWORD=change-me
+BUBU_RELEASE_KEY_ALIAS=bubu-release
+BUBU_RELEASE_KEY_PASSWORD=change-me
