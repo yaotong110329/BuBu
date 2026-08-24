@@ -1,6 +1,8 @@
 # BuBu 車庫
 
-BuBu 是供臺灣自用燃油汽車與機車使用的離線優先 Android App。正式版本為 **v1.0.0**；Phase 0–7 的功能與 Release Readiness 品質閘門已完成。
+BuBu 是供臺灣自用燃油汽車與機車使用的離線優先 Android App。正式版本為 **v1.1.0**；Phase 0–7 的功能、Google Drive 雲端備份與 Release Readiness 品質閘門已完成。
+
+最新版 APK 可由 [GitHub Releases](https://github.com/yaotong110329/BuBu/releases/tag/v1.1.0) 下載。
 
 ## 已完成功能
 
@@ -24,15 +26,25 @@ BuBu 是供臺灣自用燃油汽車與機車使用的離線優先 Android App。
 - 匯出供 Excel 閱讀的 CSV ZIP 報表，採 UTF-8 BOM、RFC 4180 quoting 與公式注入防護；CSV 不可反向匯入或還原
 - 手動建立完整 `.bubu` 備份，包含紀錄、提醒狀態與引用附件，並以格式版本、檔案大小與 SHA-256 驗證
 - 還原前先驗證及預覽備份，再完全覆蓋；操作前會建立最新一份 App 私有復原備份，可另行匯出或刪除
+- 可選擇連結自己的 Google 帳號，將既有格式的完整 `.bubu` 備份上傳到 Google Drive `appDataFolder`
+- 可查看、重新整理、預覽還原與永久刪除自己的 Google Drive 備份；雲端備份不會變更手機資料，直到使用者在既有還原確認流程中確認
 - 可開關每月手動備份提醒；它只保存為 App 偏好，不會被備份或還原，也不會自動寫入檔案
 - Material 3 深色／淺色主題與首頁、報表、設定三個頂層導覽頁
-- 完全離線，無帳號、遠端服務、廣告或追蹤 SDK
+- 預設可完全離線使用；Google Drive 備份為選用功能，不建立 BuBu 帳號、不進行資料同步，且無廣告或追蹤 SDK
+
+## V1.1.0 更新內容
+
+- 新增 Google Drive 完整備份與還原：雲端檔案和本機使用完全相同的 `.bubu` 格式。
+- 雲端備份儲存在各使用者專屬且不會出現在一般 Drive 清單中的 `appDataFolder`；BuBu 只能存取自己建立的備份檔。
+- 新增雲端備份清單、重新整理、還原預覽與永久刪除操作。
+- 新增油耗統計的疑似異常區段檢視：可選擇納入或排除統計，不會刪除原始加油紀錄、花費或里程資料。
+- 完善正式版簽署與發布設定；實際 Client ID、授權 Token、keystore 與密碼均不納入 Git。
 
 ## 技術版本
 
 | 元件 | 版本 |
 | --- | --- |
-| App | 1.0.0 (versionCode 1) |
+| App | 1.1.0 (versionCode 2) |
 | compileSdk / targetSdk / minSdk | 37 / 37 / 26 |
 | Android Gradle Plugin | 9.3.1 |
 | Gradle Wrapper | 9.6.1 |
