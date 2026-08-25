@@ -2,11 +2,11 @@
 
 ## Google Drive Cloud Backup enhancement
 
-**狀態：** 進行中（2026-08-24；雲端備份、還原與手動刪除已完成實作；正式版簽署、雙帳號與五份保留實機驗收尚待完成）
+**狀態：** 進行中（2026-08-25；雲端備份、還原、手動刪除與正式版簽署已完成；單一 Google 帳號的附件、五份保留與解除再連結實機驗收尚待完成）
 
 ### CB-01：Google Cloud 設定與憑證安全文件
 
-**狀態：** 已完成（2026-08-24；實際 client ID 與兩帳號實機驗收待 CB-12）
+**狀態：** 已完成（2026-08-25；實際 client ID 與正式版簽署已完成；單一帳號的完整實機驗收待 CB-12）
 
 **前置任務：** 無 — 可立即開始
 
@@ -142,12 +142,12 @@
 
 **前置任務：** CB-01 至 CB-11
 
-**任務目標：** 在 Google Cloud 設定完成後，以真實帳號確認雲端備份、還原、附件與帳號隔離，並完成本 enhancement 的品質檢查。
+**任務目標：** 在 Google Cloud 設定完成後，以真實帳號確認雲端備份、還原與附件，並完成本 enhancement 的品質檢查。
 
 **完成條件：**
 
 - 執行 clean、Debug APK、JVM unit tests、Android test APK、相容裝置的 connected tests 與 lint，修正本次變更造成的問題。
-- 以兩個 Google 帳號驗證上傳、下載、預覽、還原、附件、最新五份保留與解除再連結，帳號間不可看到彼此備份。
+- 以單一 Google 帳號驗證上傳、下載、預覽、還原、附件、最新五份保留與解除再連結。
 - 使用 code-review 僅審查本次 Google Drive Cloud Backup enhancement；確認後才考慮將 versionName 升為 1.1.0。
 
 ## Dashboard title, report and settings UX refinement
@@ -621,7 +621,7 @@
 
 - 本階段只交付可編譯、可啟動、可切換五個空白主頁籤，並支援系統深色／淺色外觀的 Android 專案骨架。
 - Room、DataStore、Navigation Compose、WorkManager 在 Phase 0 只完成相依套件與必要基礎設定；Navigation Compose 可用於五頁切換，其餘不得建立產品資料流。
-- 不拆解、也不實作 Phase 1 之後的車輛、加油、保養維修、紀錄、報表、提醒、匯出、備份還原或 Drivvo 匯入功能。
+- 不拆解、也不實作 Phase 1 之後的車輛、加油、保養維修、紀錄、報表、提醒、匯出或備份還原功能。
 - 執行順序：`P0-01 → P0-02 → P0-03 → P0-05 → P0-07`；`P0-04` 可在 `P0-01` 後進行，`P0-06` 須等待 `P0-01` 至 `P0-04` 完成。
 
 ---
@@ -889,9 +889,9 @@ Get-Content CHANGELOG.md -Encoding UTF8
 
 ### 禁止提前實作的內容
 
-- 不在文件中宣稱車輛管理、油耗、圖表、提醒、CSV、備份還原或 Drivvo 匯入已可使用。
+- 不在文件中宣稱車輛管理、油耗、圖表、提醒、CSV 或備份還原已可使用。
 - 不加入 Phase 1 以後的 ticket、實作步驟或排程承諾。
-- 不把 CSV 描述為可還原格式，也不宣稱已支援 Drivvo。
+- 不把 CSV 描述為可還原格式。
 
 ---
 
@@ -1201,7 +1201,7 @@ rg -n "Firebase|TODO|FIXME|GlobalScope|FuelRecord|ServiceRecord|ExpenseRecord|Ve
 ### 禁止提前實作的內容
 
 - 不開始或拆解 Phase 2；不建立加油紀錄模型、資料表、表單、油耗計算或測試。
-- 不建立保養維修、報表、提醒、CSV、備份還原、附件或 Drivvo 匯入功能。
+- 不建立保養維修、報表、提醒、CSV、備份還原或附件功能。
 - 不以 code review 名義擴張架構、加入未使用抽象或新增與 Phase 1 無關套件。
 
 ---
@@ -1219,7 +1219,7 @@ rg -n "Firebase|TODO|FIXME|GlobalScope|FuelRecord|ServiceRecord|ExpenseRecord|Ve
 - 本階段只交付 `FuelRecord` 的本機持久化、新增、編輯、刪除、精確金額換算、加滿標記、最近紀錄與目前里程重算。
 - 加油量以 ml `Long` 保存、每公升單價以 milli-TWD `Long?` 保存、實付總額以 TWD `Long` 保存；不使用 `Double` 儲存或累加金額／油量。
 - 只允許使用中的車輛新增加油紀錄；封存車輛可查看、編輯與刪除其舊紀錄。
-- 不建立油耗計算、油耗週期重算、服務工單、支出、垃圾桶、附件、提醒、首頁摘要、報表、CSV、備份還原或 Drivvo 匯入。
+- 不建立油耗計算、油耗週期重算、服務工單、支出、垃圾桶、附件、提醒、首頁摘要、報表、CSV 或備份還原。
 - 執行順序：`P2-01 → P2-02 → P2-03 → P2-04`。
 
 ---
@@ -1370,7 +1370,7 @@ rg -n "Firebase|TODO|FIXME|GlobalScope|ServiceRecord|ExpenseRecord|VehicleRemind
 
 ### 禁止提前實作的內容
 
-- 不開始或拆解 Phase 3；不建立服務工單、保養維修、支出、提醒、附件、油耗、報表、CSV、備份還原或 Drivvo 匯入。
+- 不開始或拆解 Phase 3；不建立服務工單、保養維修、支出、提醒、附件、油耗、報表、CSV 或備份還原。
 - 不以 code review 名義加入未使用抽象、外部 SDK、網路、帳號、雲端、廣告或追蹤。
 
 ---
@@ -1711,7 +1711,7 @@ rg -n "Firebase|TODO|FIXME|GlobalScope|ServiceRecord|ExpenseRecord|VehicleRemind
 
 - 不開始或拆解 Phase 4；不建立 Dashboard 摘要、統一時間軸、搜尋、篩選、詳情頁或跨類型歷史資料流。
 - 不建立 Phase 6 的提醒頁、狀態計算、WorkManager、系統通知、稅費提醒、驗車提醒或平均里程通知。
-- 不建立服務工單以外的附件管理、車輛封面、PDF 附件、垃圾桶、油耗、報表、CSV、備份還原或 Drivvo 匯入。
+- 不建立服務工單以外的附件管理、車輛封面、PDF 附件、垃圾桶、油耗、報表、CSV 或備份還原。
 - 不加入網路、Firebase、登入、帳號、雲端同步、廣告、追蹤或未要求的權限。
 
 ---
@@ -1757,7 +1757,7 @@ rg -n "Firebase|TODO|FIXME|GlobalScope|OdometerCorrection|OdometerReplacement" a
 ### 禁止提前實作的內容
 
 - 不開始或拆解 Phase 4；不建立 Dashboard 摘要、統一時間軸、搜尋、篩選、詳情頁或跨類型歷史資料流。
-- 不建立 P3-06 範圍以外的提醒、附件、垃圾桶、油耗、報表、CSV、備份還原、Drivvo 匯入、網路、帳號、雲端、廣告或追蹤。
+- 不建立 P3-06 範圍以外的提醒、附件、垃圾桶、油耗、報表、CSV、備份還原、網路、帳號、雲端、廣告或追蹤。
 
 ---
 
