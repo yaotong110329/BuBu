@@ -10,6 +10,7 @@ enum class TopLevelDestination(
     @param:DrawableRes val iconRes: Int,
 ) {
     DASHBOARD("dashboard", R.string.dashboard_title, R.drawable.ic_dashboard),
+    REMINDERS("reminders", R.string.reminders_title, R.drawable.ic_reminders),
     REPORTS("reports", R.string.reports_title, R.drawable.ic_reports),
     SETTINGS("settings", R.string.settings_title, R.drawable.ic_settings),
 }

@@ -1,6 +1,11 @@
 package com.kumo.bubu.feature.reminder
 
 import com.kumo.bubu.domain.model.ManualReminderInput
+import com.kumo.bubu.domain.model.DerivedMaintenanceReminder
+import com.kumo.bubu.domain.model.MaintenanceBaseline
+import com.kumo.bubu.domain.model.MaintenanceReminderCalculation
+import com.kumo.bubu.domain.model.MaintenanceReminderStatus
+import com.kumo.bubu.domain.model.MaintenanceReminderType
 import com.kumo.bubu.domain.model.ReminderSource
 import com.kumo.bubu.domain.model.ReminderStatus
 import com.kumo.bubu.domain.model.Vehicle
@@ -11,6 +16,7 @@ import com.kumo.bubu.domain.repository.ReminderNotificationSettings
 import com.kumo.bubu.core.notification.ReminderNotificationScheduler
 import com.kumo.bubu.feature.vehicle.FakeVehicleRepository
 import com.kumo.bubu.feature.vehicle.MainDispatcherRule
+import com.kumo.bubu.feature.service.FakeServiceRepository
 import java.time.LocalDate
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -37,6 +43,7 @@ class RemindersViewModelTest {
         }
         val viewModel = RemindersViewModel(
             reminderRepository = reminderRepository,
+            serviceRepository = FakeServiceRepository(),
             vehicleRepository = FakeVehicleRepository(listOf(vehicle(currentOdometerKm = 9_850))),
             notificationSettings = FakeReminderNotificationSettings(),
             notificationScheduler = FakeReminderNotificationScheduler(),
@@ -56,6 +63,7 @@ class RemindersViewModelTest {
         }
         val viewModel = RemindersViewModel(
             reminderRepository = reminderRepository,
+            serviceRepository = FakeServiceRepository(),
             vehicleRepository = FakeVehicleRepository(listOf(vehicle())),
             notificationSettings = FakeReminderNotificationSettings(),
             notificationScheduler = FakeReminderNotificationScheduler(),
@@ -80,6 +88,7 @@ class RemindersViewModelTest {
         val scheduler = FakeReminderNotificationScheduler()
         val viewModel = RemindersViewModel(
             reminderRepository = FakeReminderRepository(),
+            serviceRepository = FakeServiceRepository(),
             vehicleRepository = FakeVehicleRepository(listOf(vehicle())),
             notificationSettings = settings,
             notificationScheduler = scheduler,
@@ -95,6 +104,44 @@ class RemindersViewModelTest {
         assertFalse(settings.enabled.value)
         assertTrue(scheduler.cancelled)
         assertTrue(scheduler.cancelledAllNotifications)
+    }
+
+    @Test
+    fun includesDerivedMaintenanceReminderWithoutCreatingACompletionAction() = runTest {
+        val serviceRepository = FakeServiceRepository().apply {
+            maintenanceReminders.value = listOf(
+                DerivedMaintenanceReminder(
+                    vehicleId = 1,
+                    serviceTypeId = 8,
+                    serviceTypeName = "機油",
+                    sortOrder = 0,
+                    reminderType = MaintenanceReminderType.REPLACE,
+                    baseline = MaintenanceBaseline(9_000, LocalDate.of(2026, 6, 1)),
+                    intervalMileage = 10_000,
+                    intervalMonths = 6,
+                    calculation = MaintenanceReminderCalculation(
+                        status = MaintenanceReminderStatus.UPCOMING,
+                        nextMileage = 19_000,
+                        nextDate = LocalDate.of(2026, 12, 1),
+                        remainingMileage = 10_000,
+                        remainingDays = 107,
+                    ),
+                ),
+            )
+        }
+        val viewModel = RemindersViewModel(
+            reminderRepository = FakeReminderRepository(),
+            serviceRepository = serviceRepository,
+            vehicleRepository = FakeVehicleRepository(listOf(vehicle())),
+            notificationSettings = FakeReminderNotificationSettings(),
+            notificationScheduler = FakeReminderNotificationScheduler(),
+            todayProvider = { LocalDate.of(2026, 8, 16) },
+        )
+        backgroundScope.launch { viewModel.uiState.collect() }
+        advanceUntilIdle()
+
+        assertEquals("機油", viewModel.uiState.value.maintenanceRows.single().reminder.serviceTypeName)
+        assertEquals("RAV4", viewModel.uiState.value.maintenanceRows.single().vehicleName)
     }
 
     private fun vehicle(currentOdometerKm: Long = 9_000) = Vehicle(

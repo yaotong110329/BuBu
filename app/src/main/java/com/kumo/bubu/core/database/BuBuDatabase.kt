@@ -50,7 +50,7 @@ data class ServiceMigrationLabels(
         VehicleServiceReminderPreferenceEntity::class,
         PendingAttachmentDeletionEntity::class,
     ],
-    version = 13,
+    version = 15,
     exportSchema = true,
 )
 @TypeConverters(VehicleTypeConverters::class)
@@ -713,6 +713,47 @@ abstract class BuBuDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
                     "ALTER TABLE `fuel_records` ADD COLUMN `fuelEconomyStatisticsStatus` TEXT NOT NULL DEFAULT 'UNREVIEWED'",
+                )
+            }
+        }
+
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `vehicle_service_reminder_preferences` ADD COLUMN `intervalMonths` INTEGER")
+                db.execSQL("ALTER TABLE `vehicle_service_reminder_preferences` ADD COLUMN `reminderType` TEXT NOT NULL DEFAULT 'REPLACE'")
+                db.execSQL(
+                    """
+                    UPDATE `vehicle_service_reminder_preferences`
+                    SET `reminderType` = 'INSPECT'
+                    WHERE `serviceTypeId` IN (
+                        SELECT `id` FROM `service_types` WHERE `publicId` IN (
+                            'builtin-car-brake-pads', 'builtin-car-engine-belt', 'builtin-car-shocks',
+                            'builtin-car-chassis', 'builtin-motorcycle-brake-pads',
+                            'builtin-motorcycle-front-tire', 'builtin-motorcycle-rear-tire',
+                            'builtin-motorcycle-drive-belt'
+                        )
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    UPDATE `vehicle_service_reminder_preferences`
+                    SET `reminderType` = 'ESTIMATE'
+                    WHERE `serviceTypeId` IN (
+                        SELECT `id` FROM `service_types` WHERE `publicId` IN (
+                            'builtin-car-tires', 'builtin-car-battery', 'builtin-car-wipers',
+                            'builtin-motorcycle-battery'
+                        )
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE `vehicles` ADD COLUMN `useNewVehicleMaintenanceBaseline` INTEGER NOT NULL DEFAULT 0",
                 )
             }
         }

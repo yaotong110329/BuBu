@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Update
 import com.kumo.bubu.data.local.entity.ServiceItemEntity
+import com.kumo.bubu.data.local.model.ServiceItemMaintenanceBaseline
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -30,6 +31,28 @@ interface ServiceItemDao {
         """,
     )
     fun observeForVehicle(vehicleId: Long): Flow<List<ServiceItemEntity>>
+
+    @Query(
+        """
+        SELECT record.vehicleId AS vehicleId,
+               item.serviceTypeId AS serviceTypeId,
+               record.dateEpochDay AS serviceDateEpochDay,
+               record.timeMinuteOfDay AS serviceTimeMinuteOfDay,
+               record.sequenceInDay AS serviceSequenceInDay,
+               record.id AS serviceRecordId,
+               record.odometerKm AS odometerKm
+        FROM service_items AS item
+        INNER JOIN service_records AS record ON record.id = item.serviceRecordId
+        WHERE item.serviceTypeId IS NOT NULL
+        ORDER BY record.dateEpochDay DESC,
+                 COALESCE(record.timeMinuteOfDay, -1) DESC,
+                 record.sequenceInDay DESC,
+                 record.id DESC,
+                 item.sequenceInRecord DESC,
+                 item.id DESC
+        """,
+    )
+    fun observeMaintenanceBaselines(): Flow<List<ServiceItemMaintenanceBaseline>>
 
     @Query("SELECT * FROM service_items WHERE serviceRecordId = :serviceRecordId ORDER BY sequenceInRecord ASC, id ASC")
     suspend fun getForRecord(serviceRecordId: Long): List<ServiceItemEntity>

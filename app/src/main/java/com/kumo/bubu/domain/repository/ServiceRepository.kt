@@ -7,8 +7,10 @@ import com.kumo.bubu.domain.model.ServiceType
 import com.kumo.bubu.domain.model.ServiceTypeInput
 import com.kumo.bubu.domain.model.ServiceReminderPreference
 import com.kumo.bubu.domain.model.ServiceReminderPreferenceInput
+import com.kumo.bubu.domain.model.DerivedMaintenanceReminder
 import com.kumo.bubu.domain.model.StagedServiceAttachment
 import kotlinx.coroutines.flow.Flow
+import java.time.LocalDate
 
 interface ServiceRepository {
     fun observeRecentServiceRecords(): Flow<List<ServiceRecord>>
@@ -27,6 +29,8 @@ interface ServiceRepository {
     fun observeServiceReminderPreferences(vehicleId: Long): kotlinx.coroutines.flow.Flow<List<ServiceReminderPreference>>
     fun observeAllServiceReminderPreferences(): Flow<List<ServiceReminderPreference>>
     suspend fun saveServiceReminderPreference(input: ServiceReminderPreferenceInput)
+    suspend fun deleteServiceReminderPreference(vehicleId: Long, serviceTypeId: Long)
+    fun observeMaintenanceReminders(today: LocalDate): Flow<List<DerivedMaintenanceReminder>>
     suspend fun stageServiceAttachments(sourceUriStrings: List<String>): List<StagedServiceAttachment>
     suspend fun discardStagedServiceAttachment(relativePath: String)
     suspend fun readServiceAttachmentBytes(relativePath: String): ByteArray?

@@ -34,7 +34,13 @@ import com.kumo.bubu.domain.model.ServiceType
 import com.kumo.bubu.domain.model.ServiceTypeInput
 import com.kumo.bubu.domain.model.ServiceReminderPreference
 import com.kumo.bubu.domain.model.ServiceReminderPreferenceInput
+import com.kumo.bubu.domain.model.DerivedMaintenanceReminder
+import com.kumo.bubu.domain.model.MaintenanceBaseline
+import com.kumo.bubu.domain.model.MaintenanceIntervalPolicy
+import com.kumo.bubu.domain.model.MaintenanceReminderCalculator
 import com.kumo.bubu.domain.model.defaultReminderIntervalKm
+import com.kumo.bubu.domain.model.defaultReminderIntervalMonths
+import com.kumo.bubu.domain.model.defaultMaintenanceReminderType
 import com.kumo.bubu.domain.model.MAX_SERVICE_ATTACHMENTS_PER_RECORD
 import com.kumo.bubu.domain.model.validated
 import com.kumo.bubu.domain.repository.ServiceRepository
@@ -42,6 +48,7 @@ import com.kumo.bubu.domain.repository.ServiceAttachmentException
 import com.kumo.bubu.domain.repository.ServiceRecordException
 import com.kumo.bubu.domain.repository.ServiceWriteStage
 import java.util.UUID
+import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
@@ -373,6 +380,8 @@ class OfflineServiceRepository(
                         serviceTypeId = valid.serviceTypeId,
                         isEnabled = valid.isEnabled,
                         intervalKm = valid.intervalKm,
+                        intervalMonths = valid.intervalMonths,
+                        reminderType = valid.reminderType,
                         baseOdometerKm = valid.baseOdometerKm,
                         sortOrder = valid.sortOrder,
                         createdAt = now,
@@ -384,6 +393,8 @@ class OfflineServiceRepository(
                     existing.copy(
                         isEnabled = valid.isEnabled,
                         intervalKm = valid.intervalKm,
+                        intervalMonths = valid.intervalMonths,
+                        reminderType = valid.reminderType,
                         baseOdometerKm = valid.baseOdometerKm,
                         sortOrder = valid.sortOrder,
                         updatedAt = now,
@@ -394,6 +405,72 @@ class OfflineServiceRepository(
                 .lastOrNull { it.serviceTypeId == valid.serviceTypeId }
                 ?.let { item -> syncReminder(valid.vehicleId, item, now) }
             rebuildReminderCompletions(valid.vehicleId, now)
+        }
+
+    override suspend fun deleteServiceReminderPreference(vehicleId: Long, serviceTypeId: Long) =
+        database.withTransaction {
+            serviceReminderPreferenceDao.delete(vehicleId, serviceTypeId)
+        }
+
+    override fun observeMaintenanceReminders(today: LocalDate): Flow<List<DerivedMaintenanceReminder>> =
+        combine(
+            vehicleDao.observeAll(),
+            serviceTypeDao.observeAll(),
+            serviceReminderPreferenceDao.observeAll(),
+            serviceItemDao.observeMaintenanceBaselines(),
+        ) { vehicles, types, preferences, baselineRows ->
+            val latestBaselineByKey = baselineRows
+                .groupBy { it.vehicleId to it.serviceTypeId }
+                .mapValues { (_, rows) -> rows.first() }
+            val preferenceByKey = preferences.associateBy { it.vehicleId to it.serviceTypeId }
+            vehicles.filterNot(VehicleEntity::isArchived).flatMap { vehicle ->
+                types.asSequence()
+                    .filter { type -> !type.isArchived && type.vehicleType == vehicle.vehicleType }
+                    .mapNotNull { type ->
+                        val serviceType = type.toDomain()
+                        val preference = preferenceByKey[vehicle.id to type.id]
+                        val intervalMileage = preference?.intervalKm ?: serviceType.defaultReminderIntervalKm()
+                        val intervalMonths = preference?.intervalMonths ?: serviceType.defaultReminderIntervalMonths()
+                        if (!type.isBuiltIn && preference == null) return@mapNotNull null
+                        if (preference?.isEnabled == false) return@mapNotNull null
+                        val baselineRow = latestBaselineByKey[vehicle.id to type.id]
+                        val configuredMileageBaseline = preference?.baseOdometerKm
+                            ?: if (vehicle.useNewVehicleMaintenanceBaseline) 0L else null
+                        val usesConfiguredMileageBaseline = baselineRow == null && configuredMileageBaseline != null
+                        val baseline = MaintenanceBaseline(
+                            lastServiceMileage = baselineRow?.odometerKm ?: configuredMileageBaseline,
+                            lastServiceDate = baselineRow?.serviceDateEpochDay?.let(LocalDate::ofEpochDay),
+                        )
+                        val policy = MaintenanceIntervalPolicy(
+                            intervalMileage = intervalMileage,
+                            intervalMonths = intervalMonths,
+                            reminderType = preference?.reminderType ?: serviceType.defaultMaintenanceReminderType(),
+                            reminderEnabled = true,
+                        )
+                        DerivedMaintenanceReminder(
+                            vehicleId = vehicle.id,
+                            serviceTypeId = type.id,
+                            serviceTypeName = type.name,
+                            sortOrder = preference?.sortOrder ?: type.sortOrder,
+                            reminderType = policy.reminderType,
+                            baseline = baseline,
+                            usesConfiguredMileageBaseline = usesConfiguredMileageBaseline,
+                            intervalMileage = intervalMileage,
+                            intervalMonths = intervalMonths,
+                            calculation = MaintenanceReminderCalculator.calculate(
+                                baseline = baseline,
+                                policy = policy,
+                                currentMileage = vehicle.currentOdometerKm,
+                                today = today,
+                            ),
+                        )
+                    }
+                    .toList()
+            }.sortedWith(
+                compareBy<DerivedMaintenanceReminder> { it.vehicleId }
+                    .thenBy { it.sortOrder }
+                    .thenBy { it.serviceTypeName },
+            )
         }
 
     override suspend fun stageServiceAttachments(
@@ -528,13 +605,19 @@ class OfflineServiceRepository(
             serviceTypeDao.getById(serviceTypeId)
         }
         val intervalKm = preference?.intervalKm ?: serviceType?.toDomain()?.defaultReminderIntervalKm()
+        val intervalMonths = preference?.intervalMonths ?: serviceType?.toDomain()?.defaultReminderIntervalMonths()
+        val record = serviceRecordDao.getById(item.serviceRecordId)
         val preferenceDueOdometerKm = intervalKm?.let { intervalKm ->
-            serviceRecordDao.getById(item.serviceRecordId)?.odometerKm?.plus(intervalKm)
+            record?.odometerKm?.plus(intervalKm)
+        }
+        val preferenceDueDateEpochDay = intervalMonths?.let { interval ->
+            record?.dateEpochDay?.let { date -> LocalDate.ofEpochDay(date).plusMonths(interval).toEpochDay() }
         }
         val dueOdometerKm = preferenceDueOdometerKm ?: item.nextDueOdometerKm
+        val dueDateEpochDay = preferenceDueDateEpochDay ?: item.nextDueDateEpochDay
         val isEnabled = preference?.isEnabled ?: true
         val existing = vehicleReminderDao.getBySourceServiceItemId(item.id)
-        if (dueOdometerKm == null && item.nextDueDateEpochDay == null) {
+        if (dueOdometerKm == null && dueDateEpochDay == null) {
             if (existing != null) {
                 vehicleReminderDao.deleteBySourceServiceItemId(item.id)
             }
@@ -549,7 +632,7 @@ class OfflineServiceRepository(
                     sourceServiceItemId = item.id,
                     title = item.nameSnapshot,
                     dueOdometerKm = dueOdometerKm,
-                    dueDateEpochDay = item.nextDueDateEpochDay,
+                    dueDateEpochDay = dueDateEpochDay,
                     isEnabled = isEnabled,
                     createdAt = now,
                     updatedAt = now,
@@ -561,7 +644,7 @@ class OfflineServiceRepository(
                     vehicleId = vehicleId,
                     title = item.nameSnapshot,
                     dueOdometerKm = dueOdometerKm,
-                    dueDateEpochDay = item.nextDueDateEpochDay,
+                    dueDateEpochDay = dueDateEpochDay,
                     isEnabled = isEnabled,
                     updatedAt = now,
                 ),
@@ -695,6 +778,8 @@ private fun VehicleServiceReminderPreferenceEntity.toDomain() = ServiceReminderP
     serviceTypeId = serviceTypeId,
     isEnabled = isEnabled,
     intervalKm = intervalKm,
+    intervalMonths = intervalMonths,
+    reminderType = reminderType,
     baseOdometerKm = baseOdometerKm,
     sortOrder = sortOrder,
     createdAt = createdAt,

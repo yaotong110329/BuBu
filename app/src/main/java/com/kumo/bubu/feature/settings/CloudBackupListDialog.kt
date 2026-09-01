@@ -26,7 +26,7 @@ fun CloudBackupListDialog(
     onDismiss: () -> Unit,
     onRefresh: () -> Unit,
     onDownload: (String) -> Unit,
-    onDelete: (CloudBackup) -> Unit,
+    onDelete: (CloudBackup) -> Unit = {},
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,

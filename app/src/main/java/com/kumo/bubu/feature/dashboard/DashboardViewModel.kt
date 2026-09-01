@@ -9,6 +9,7 @@ import com.kumo.bubu.domain.model.VehicleType
 import com.kumo.bubu.domain.model.calculateRecentAverageFuelEconomyMilliKmPerLiter
 import com.kumo.bubu.domain.model.estimateFuelInterval
 import com.kumo.bubu.domain.model.ReminderSource
+import com.kumo.bubu.domain.model.MaintenanceReminderStatus
 import com.kumo.bubu.domain.repository.FuelRepository
 import com.kumo.bubu.domain.repository.ReminderRepository
 import com.kumo.bubu.domain.repository.ServiceRepository
@@ -29,6 +30,8 @@ data class VehicleDashboardItem(
     val maintenanceRemainingKm: Long? = null,
     val maintenanceEstimatedDays: Long? = null,
     val fuelPredictionDays: Long? = null,
+    val maintenanceDueCount: Int = 0,
+    val maintenanceUpcomingCount: Int = 0,
 )
 
 data class DashboardUiState(
@@ -50,6 +53,9 @@ class DashboardViewModel(
         serviceRepository.observeServiceTypes(),
         serviceRepository.observeAllServiceReminderPreferences(),
     ) { vehicles, fuelRecords, reminders, serviceTypes, preferences ->
+        DashboardInputs(vehicles, fuelRecords, reminders, serviceTypes, preferences)
+    }.let { inputs -> combine(inputs, serviceRepository.observeMaintenanceReminders(java.time.LocalDate.now())) { input, maintenanceReminders ->
+        val (vehicles, fuelRecords, reminders, serviceTypes, preferences) = input
         val activeVehicles = vehicles.filterNot { it.isArchived }
         val todayEpochDay = java.time.LocalDate.now().toEpochDay()
         DashboardUiState(
@@ -93,11 +99,18 @@ class DashboardViewModel(
                             todayEpochDay,
                             fuelRecords,
                         )?.daysUntilNextFuel,
+                        maintenanceDueCount = maintenanceReminders.count {
+                            it.vehicleId == vehicle.id &&
+                                (it.calculation.status == MaintenanceReminderStatus.DUE || it.calculation.status == MaintenanceReminderStatus.OVERDUE)
+                        },
+                        maintenanceUpcomingCount = maintenanceReminders.count {
+                            it.vehicleId == vehicle.id && it.calculation.status == MaintenanceReminderStatus.UPCOMING
+                        },
                     )
                 },
             isLoading = false,
         )
-    }.catch {
+    } }.catch {
         emit(DashboardUiState(isLoading = false, loadFailed = true))
     }.stateIn(
         scope = viewModelScope,
@@ -120,3 +133,11 @@ class DashboardViewModel(
         }
     }
 }
+
+private data class DashboardInputs(
+    val vehicles: List<com.kumo.bubu.domain.model.Vehicle>,
+    val fuelRecords: List<com.kumo.bubu.domain.model.FuelRecord>,
+    val reminders: List<com.kumo.bubu.domain.model.VehicleReminder>,
+    val serviceTypes: List<com.kumo.bubu.domain.model.ServiceType>,
+    val preferences: List<com.kumo.bubu.domain.model.ServiceReminderPreference>,
+)

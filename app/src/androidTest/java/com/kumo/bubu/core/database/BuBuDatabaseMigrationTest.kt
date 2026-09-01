@@ -44,6 +44,7 @@ class BuBuDatabaseMigrationTest {
                 BuBuDatabase.MIGRATION_10_11,
                 BuBuDatabase.MIGRATION_11_12,
                 BuBuDatabase.MIGRATION_12_13,
+                BuBuDatabase.MIGRATION_13_14,
             )
             .allowMainThreadQueries()
             .build()
@@ -470,6 +471,30 @@ class BuBuDatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migrationFromThirteenToFourteenAddsMonthIntervalAndReminderType() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(V13_MIGRATION_DATABASE)
+        migrationHelper.createDatabase(V13_MIGRATION_DATABASE, 13).close()
+
+        val database = migrationHelper.runMigrationsAndValidate(
+            V13_MIGRATION_DATABASE, 14, true, BuBuDatabase.MIGRATION_13_14,
+        )
+        try {
+            val columns = database.query("PRAGMA table_info(`vehicle_service_reminder_preferences`)").use { cursor ->
+                buildSet {
+                    val nameIndex = cursor.getColumnIndexOrThrow("name")
+                    while (cursor.moveToNext()) add(cursor.getString(nameIndex))
+                }
+            }
+            assertTrue("intervalMonths" in columns)
+            assertTrue("reminderType" in columns)
+        } finally {
+            database.close()
+            context.deleteDatabase(V13_MIGRATION_DATABASE)
+        }
+    }
+
     private fun scalarInt(database: androidx.sqlite.db.SupportSQLiteDatabase, query: String): Int =
         database.query(query).use { cursor ->
             check(cursor.moveToFirst())
@@ -511,6 +536,7 @@ class BuBuDatabaseMigrationTest {
         const val V8_MIGRATION_DATABASE = "bubu-v8-v9-migration-test"
         const val V9_MIGRATION_DATABASE = "bubu-v9-v10-migration-test"
         const val V12_MIGRATION_DATABASE = "bubu-v12-v13-migration-test"
+        const val V13_MIGRATION_DATABASE = "bubu-v13-v14-migration-test"
         val TEST_MIGRATION_LABELS = ServiceMigrationLabels(
             maintenanceTitle = "保養工單",
             repairTitle = "維修工單",

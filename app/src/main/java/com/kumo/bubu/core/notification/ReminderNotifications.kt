@@ -6,6 +6,7 @@ import androidx.core.app.NotificationManagerCompat
 
 object ReminderNotifications {
     const val CHANNEL_ID = "vehicle_reminders"
+    const val MAINTENANCE_NOTIFICATION_ID = 70_006
 
     fun cancel(context: Context, reminderId: Long) {
         NotificationManagerCompat.from(context).cancel(notificationId(reminderId))
@@ -19,7 +20,9 @@ object ReminderNotifications {
     }
 
     fun cancelDeleted(context: Context, activeReminderIds: Collection<Long>) {
-        val knownNotificationIds = activeReminderIds.mapTo(mutableSetOf(), ::notificationId)
+        val knownNotificationIds = activeReminderIds.mapTo(mutableSetOf(), ::notificationId).apply {
+            add(MAINTENANCE_NOTIFICATION_ID)
+        }
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.activeNotifications
             .filter { it.notification.channelId == CHANNEL_ID && it.id !in knownNotificationIds }

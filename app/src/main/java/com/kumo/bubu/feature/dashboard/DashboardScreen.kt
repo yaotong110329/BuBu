@@ -217,6 +217,17 @@ fun VehicleDashboardCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            if (vehicle.maintenanceDueCount > 0 || vehicle.maintenanceUpcomingCount > 0) {
+                Text(
+                    text = stringResource(
+                        R.string.dashboard_maintenance_summary,
+                        vehicle.maintenanceDueCount,
+                        vehicle.maintenanceUpcomingCount,
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Text(
                 text = vehicle.fuelPredictionDays?.let { days ->
                     stringResource(R.string.dashboard_fuel_prediction, days)

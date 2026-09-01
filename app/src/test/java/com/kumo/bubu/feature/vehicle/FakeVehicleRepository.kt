@@ -16,6 +16,7 @@ class FakeVehicleRepository(
     val updatedInputs = mutableListOf<Pair<Long, VehicleInput>>()
     val selectedPublicIds = mutableListOf<String>()
     val archiveChanges = mutableListOf<Pair<Long, Boolean>>()
+    val newVehicleMaintenanceBaselineChanges = mutableListOf<Pair<Long, Boolean>>()
     val deletedIds = mutableListOf<Long>()
 
     override fun observeVehicles(): Flow<List<Vehicle>> = garage.map { it.vehicles }
@@ -39,6 +40,10 @@ class FakeVehicleRepository(
 
     override suspend fun setVehicleArchived(id: Long, isArchived: Boolean) {
         archiveChanges += id to isArchived
+    }
+
+    override suspend fun setNewVehicleMaintenanceBaseline(id: Long, enabled: Boolean) {
+        newVehicleMaintenanceBaselineChanges += id to enabled
     }
 
     override suspend fun deleteUnreferencedVehicle(id: Long) {

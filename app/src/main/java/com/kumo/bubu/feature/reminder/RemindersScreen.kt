@@ -6,6 +6,7 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -25,6 +27,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -59,17 +62,20 @@ import androidx.core.content.ContextCompat
 import com.kumo.bubu.R
 import com.kumo.bubu.domain.model.ReminderSource
 import com.kumo.bubu.domain.model.ReminderStatus
+import com.kumo.bubu.domain.model.MaintenanceReminderType
+import com.kumo.bubu.domain.model.MaintenanceReminderStatus
 import java.time.LocalDate
 
 @Composable
 fun RemindersRoute(
     viewModel: RemindersViewModel,
-    onBack: () -> Unit,
+    onBack: (() -> Unit)? = null,
+    onCreateMaintenance: (Long, Long) -> Unit = { _, _ -> },
     highlightedReminderId: Long? = null,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.uiState.collectAsState()
-    RemindersScreen(state, viewModel::onEvent, onBack, highlightedReminderId, modifier)
+    RemindersScreen(state, viewModel::onEvent, onBack, onCreateMaintenance, highlightedReminderId, modifier)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -77,20 +83,24 @@ fun RemindersRoute(
 fun RemindersScreen(
     state: RemindersUiState,
     onEvent: (ReminderEvent) -> Unit,
-    onBack: () -> Unit,
+    onBack: (() -> Unit)? = null,
+    onCreateMaintenance: (Long, Long) -> Unit = { _, _ -> },
     highlightedReminderId: Long? = null,
     modifier: Modifier = Modifier,
 ) {
     var showAddSheet by rememberSaveable { mutableStateOf(false) }
     var customSnoozeReminderId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var selectedMaintenance by remember { mutableStateOf<MaintenanceReminderRow?>(null) }
     Scaffold(
         modifier = modifier,
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.reminders_title)) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back))
+                    onBack?.let { navigateBack ->
+                        IconButton(onClick = navigateBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back))
+                        }
                     }
                 },
             )
@@ -110,6 +120,7 @@ fun RemindersScreen(
             state = state,
             onEvent = onEvent,
             onRequestCustomSnooze = { reminderId -> customSnoozeReminderId = reminderId },
+            onSelectMaintenance = { selectedMaintenance = it },
             highlightedReminderId = highlightedReminderId,
             padding = padding,
         )
@@ -133,6 +144,16 @@ fun RemindersScreen(
             },
         )
     }
+    selectedMaintenance?.let { row ->
+        MaintenanceReminderDetailSheet(
+            row = row,
+            onDismiss = { selectedMaintenance = null },
+            onCreateMaintenance = {
+                selectedMaintenance = null
+                onCreateMaintenance(row.reminder.vehicleId, row.reminder.serviceTypeId)
+            },
+        )
+    }
 }
 
 @Composable
@@ -140,6 +161,7 @@ private fun ReminderContent(
     state: RemindersUiState,
     onEvent: (ReminderEvent) -> Unit,
     onRequestCustomSnooze: (Long) -> Unit,
+    onSelectMaintenance: (MaintenanceReminderRow) -> Unit,
     highlightedReminderId: Long?,
     padding: PaddingValues,
 ) {
@@ -181,15 +203,173 @@ private fun ReminderContent(
             state.isLoading -> item { ReminderMessage(R.string.reminders_loading) }
             state.loadFailed -> item { ReminderMessage(R.string.reminders_load_error) }
             state.vehicles.isEmpty() -> item { ReminderMessage(R.string.reminders_no_vehicles) }
-            state.rows.isEmpty() -> item { ReminderMessage(R.string.reminders_empty) }
+            state.rows.isEmpty() && state.maintenanceRows.isEmpty() -> item { ReminderMessage(R.string.reminders_empty) }
             else -> {
+                item { ReminderVehicleSelector(state, onEvent) }
                 if (state.actionFailed) item { ReminderMessage(R.string.reminders_action_error) }
+                if (state.maintenanceRows.isNotEmpty()) {
+                    item { MaintenanceReminderSummary(state.maintenanceRows) }
+                    item { Text(stringResource(R.string.maintenance_reminders_heading), style = MaterialTheme.typography.titleMedium) }
+                    items(state.maintenanceRows, key = { "maintenance-${it.reminder.vehicleId}-${it.reminder.serviceTypeId}" }) { row ->
+                        MaintenanceReminderCard(row, onClick = { onSelectMaintenance(row) })
+                    }
+                }
                 items(state.rows, key = { it.reminder.id }) { row ->
                     ReminderCard(row, onEvent, onRequestCustomSnooze)
                 }
             }
         }
     }
+}
+
+@Composable
+private fun ReminderVehicleSelector(state: RemindersUiState, onEvent: (ReminderEvent) -> Unit) {
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth().testTag("reminders-vehicle-selector"),
+    ) {
+        items(state.vehicles, key = ReminderVehicleOption::id) { vehicle ->
+            FilterChip(
+                selected = state.selectedVehicleId == vehicle.id,
+                onClick = { onEvent(ReminderEvent.SelectVehicle(vehicle.id)) },
+                label = { Text(vehicle.name) },
+                modifier = Modifier.testTag("reminders-vehicle-${vehicle.id}"),
+            )
+        }
+    }
+}
+
+@Composable
+private fun MaintenanceReminderSummary(rows: List<MaintenanceReminderRow>) {
+    val dueCount = rows.count {
+        it.reminder.calculation.status == MaintenanceReminderStatus.DUE ||
+            it.reminder.calculation.status == MaintenanceReminderStatus.OVERDUE
+    }
+    val upcomingCount = rows.count { it.reminder.calculation.status == MaintenanceReminderStatus.UPCOMING }
+    val unknownCount = rows.count { it.reminder.calculation.status == MaintenanceReminderStatus.UNKNOWN }
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(stringResource(R.string.maintenance_reminders_heading), style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.maintenance_reminder_summary_due, dueCount))
+            Text(stringResource(R.string.maintenance_reminder_summary_upcoming, upcomingCount))
+            Text(stringResource(R.string.maintenance_reminder_summary_unknown, unknownCount))
+        }
+    }
+}
+
+@Composable
+private fun MaintenanceReminderCard(row: MaintenanceReminderRow, onClick: () -> Unit) {
+    val reminder = row.reminder
+    val calculation = reminder.calculation
+    Card(
+        modifier = Modifier.fillMaxWidth().testTag("maintenance-reminder-${reminder.vehicleId}-${reminder.serviceTypeId}").clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+    ) {
+        ListItem(
+            headlineContent = { Text(reminder.serviceTypeName, fontWeight = FontWeight.SemiBold) },
+            supportingContent = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(row.vehicleName)
+                    val baseline = reminder.baseline
+                    if (baseline.lastServiceMileage == null && baseline.lastServiceDate == null) {
+                        Text(stringResource(R.string.maintenance_reminder_unknown))
+                    } else if (reminder.usesConfiguredMileageBaseline) {
+                        Text(
+                            stringResource(
+                                R.string.maintenance_reminder_configured_baseline,
+                                requireNotNull(baseline.lastServiceMileage),
+                            ),
+                        )
+                    } else {
+                        Text(
+                            stringResource(
+                                R.string.maintenance_reminder_baseline,
+                                baseline.lastServiceMileage?.toString() ?: stringResource(R.string.maintenance_reminder_not_recorded),
+                                baseline.lastServiceDate?.toString() ?: stringResource(R.string.maintenance_reminder_not_recorded),
+                            ),
+                        )
+                    }
+                    calculation.nextMileage?.let { Text(stringResource(R.string.maintenance_reminder_next_mileage, it)) }
+                    calculation.nextDate?.let { Text(stringResource(R.string.maintenance_reminder_next_date, it.toString())) }
+                }
+            },
+            trailingContent = { MaintenanceStatusChip(calculation.status, reminder.reminderType) },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MaintenanceReminderDetailSheet(
+    row: MaintenanceReminderRow,
+    onDismiss: () -> Unit,
+    onCreateMaintenance: () -> Unit,
+) {
+    val reminder = row.reminder
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(reminder.serviceTypeName, style = MaterialTheme.typography.titleLarge)
+            Text(row.vehicleName)
+            Text(
+                stringResource(
+                    R.string.maintenance_reminder_interval,
+                    reminder.intervalMileage?.toString() ?: stringResource(R.string.maintenance_reminder_not_recorded),
+                    reminder.intervalMonths?.toString() ?: stringResource(R.string.maintenance_reminder_not_recorded),
+                ),
+            )
+            if (reminder.usesConfiguredMileageBaseline) {
+                Text(
+                    stringResource(
+                        R.string.maintenance_reminder_configured_baseline,
+                        requireNotNull(reminder.baseline.lastServiceMileage),
+                    ),
+                )
+            } else {
+                Text(stringResource(R.string.maintenance_reminder_baseline,
+                    reminder.baseline.lastServiceMileage?.toString() ?: stringResource(R.string.maintenance_reminder_not_recorded),
+                    reminder.baseline.lastServiceDate?.toString() ?: stringResource(R.string.maintenance_reminder_not_recorded)))
+            }
+            reminder.calculation.nextMileage?.let { Text(stringResource(R.string.maintenance_reminder_next_mileage, it)) }
+            reminder.calculation.nextDate?.let { Text(stringResource(R.string.maintenance_reminder_next_date, it.toString())) }
+            TextButton(onClick = onCreateMaintenance, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.maintenance_reminder_add_record))
+            }
+        }
+    }
+}
+
+@Composable
+private fun MaintenanceStatusChip(
+    status: MaintenanceReminderStatus,
+    reminderType: MaintenanceReminderType,
+) {
+    AssistChip(
+        onClick = {},
+        label = {
+            Text(
+                stringResource(
+                    when (status) {
+                        MaintenanceReminderStatus.UNKNOWN -> R.string.maintenance_reminder_status_unknown
+                        MaintenanceReminderStatus.NORMAL -> R.string.maintenance_reminder_status_normal
+                        MaintenanceReminderStatus.UPCOMING -> R.string.maintenance_reminder_status_upcoming
+                        MaintenanceReminderStatus.DUE -> when (reminderType) {
+                            MaintenanceReminderType.REPLACE -> R.string.maintenance_reminder_status_due
+                            MaintenanceReminderType.INSPECT -> R.string.maintenance_reminder_status_inspect_due
+                            MaintenanceReminderType.ESTIMATE -> R.string.maintenance_reminder_status_estimate_due
+                        }
+                        MaintenanceReminderStatus.OVERDUE -> when (reminderType) {
+                            MaintenanceReminderType.REPLACE -> R.string.maintenance_reminder_status_overdue
+                            MaintenanceReminderType.INSPECT -> R.string.maintenance_reminder_status_inspect_overdue
+                            MaintenanceReminderType.ESTIMATE -> R.string.maintenance_reminder_status_estimate_overdue
+                        }
+                    },
+                ),
+            )
+        },
+    )
 }
 
 @Composable

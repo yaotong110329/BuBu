@@ -26,4 +26,7 @@ interface VehicleServiceReminderPreferenceDao {
 
     @Update
     suspend fun update(preference: VehicleServiceReminderPreferenceEntity)
+
+    @Query("DELETE FROM vehicle_service_reminder_preferences WHERE vehicleId = :vehicleId AND serviceTypeId = :serviceTypeId")
+    suspend fun delete(vehicleId: Long, serviceTypeId: Long)
 }

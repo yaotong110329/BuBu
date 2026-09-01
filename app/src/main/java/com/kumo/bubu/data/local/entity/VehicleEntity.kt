@@ -32,6 +32,7 @@ data class VehicleEntity(
     val isArchived: Boolean,
     val createdAt: Long,
     val updatedAt: Long,
+    val useNewVehicleMaintenanceBaseline: Boolean = false,
     val primaryInspectionMonthDay: MonthDay? = null,
     val secondaryInspectionMonthDay: MonthDay? = null,
 )

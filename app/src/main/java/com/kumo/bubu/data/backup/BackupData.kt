@@ -60,6 +60,7 @@ data class BackupVehicle(
     val powertrainType: String?,
     val trackingStartDateEpochDay: Long,
     val trackingStartOdometerKm: Long,
+    val useNewVehicleMaintenanceBaseline: Boolean = false,
     val currentOdometerKm: Long,
     val note: String?,
     val isArchived: Boolean,
@@ -183,6 +184,8 @@ data class BackupServiceReminderPreference(
     val serviceTypePublicId: String,
     val isEnabled: Boolean,
     val intervalKm: Long?,
+    val intervalMonths: Long? = null,
+    val reminderType: String = "REPLACE",
     val baseOdometerKm: Long? = null,
     val sortOrder: Int,
     val createdAt: Long,
@@ -253,14 +256,14 @@ object BackupDataBuilder {
         )
     }
 
-    private fun VehicleEntity.toBackup() = BackupVehicle(publicId, name, vehicleType.name, motorcycleClass?.name, brand, model, manufactureYear, engineDisplacementCc, licensePlate, powertrainType?.name, trackingStartDateEpochDay, trackingStartOdometerKm, currentOdometerKm, note, isArchived, createdAt, updatedAt, primaryInspectionMonthDay?.toString(), secondaryInspectionMonthDay?.toString())
+    private fun VehicleEntity.toBackup() = BackupVehicle(publicId, name, vehicleType.name, motorcycleClass?.name, brand, model, manufactureYear, engineDisplacementCc, licensePlate, powertrainType?.name, trackingStartDateEpochDay, trackingStartOdometerKm, useNewVehicleMaintenanceBaseline, currentOdometerKm, note, isArchived, createdAt, updatedAt, primaryInspectionMonthDay?.toString(), secondaryInspectionMonthDay?.toString())
     private fun FuelRecordEntity.toBackup(vehiclePublicId: String) = BackupFuelRecord(publicId, vehiclePublicId, dateEpochDay, timeMinuteOfDay, sequenceInDay, odometerKm, fuelVolumeMl, pricePerLiterMilli, totalCostTwd, isFullTank, fuelProduct?.name, note, createdAt, updatedAt, fuelingMode.name, fuelEconomyStatisticsStatus.name)
     private fun ServiceTypeEntity.toBackup() = BackupServiceType(publicId, name, vehicleType.name, isBuiltIn, isArchived, sortOrder, createdAt, updatedAt)
     private fun ServiceRecordEntity.toBackup(vehiclePublicId: String) = BackupServiceRecord(publicId, vehiclePublicId, dateEpochDay, timeMinuteOfDay, sequenceInDay, odometerKm, recordType.name, title, paymentMethod?.name, totalCostTwd, note, createdAt, updatedAt)
     private fun ServiceItemEntity.toBackup(serviceRecordPublicId: String, serviceTypePublicId: String?) = BackupServiceItem(publicId, serviceRecordPublicId, serviceTypePublicId, sequenceInRecord, nameSnapshot, quantityMilli, quantityUnit.name, unitPriceTwd, subtotalTwd, nextDueOdometerKm, nextDueDateEpochDay, note, createdAt, updatedAt)
     private fun ExpenseRecordEntity.toBackup(vehiclePublicId: String, completedReminderPublicId: String?) = BackupExpenseRecord(publicId, vehiclePublicId, dateEpochDay, timeMinuteOfDay, sequenceInDay, category.name, totalCostTwd, note, createdAt, updatedAt, completedReminderPublicId)
     private fun VehicleReminderEntity.toBackup(vehiclePublicId: String, sourceServiceItemPublicId: String?, completedByServiceRecordPublicId: String?, completedByExpenseRecordPublicId: String?) = BackupReminder(publicId, vehiclePublicId, source.name, sourceServiceItemPublicId, title, dueOdometerKm, dueDateEpochDay, completedByServiceRecordPublicId, completedAt, snoozedUntilEpochDay, lastNotifiedStatus?.name, isEnabled, createdAt, updatedAt, automaticKey, ruleVersion, ruleVerifiedEpochDay, estimatedNotificationEpochDay, lastNotifiedTrigger, referenceDateEpochDay, completedByExpenseRecordPublicId)
-    private fun VehicleServiceReminderPreferenceEntity.toBackup(vehiclePublicId: String, serviceTypePublicId: String) = BackupServiceReminderPreference(publicId, vehiclePublicId, serviceTypePublicId, isEnabled, intervalKm, baseOdometerKm, sortOrder, createdAt, updatedAt)
+    private fun VehicleServiceReminderPreferenceEntity.toBackup(vehiclePublicId: String, serviceTypePublicId: String) = BackupServiceReminderPreference(publicId, vehiclePublicId, serviceTypePublicId, isEnabled, intervalKm, intervalMonths, reminderType.name, baseOdometerKm, sortOrder, createdAt, updatedAt)
     private fun ServiceAttachmentEntity.toBackup(serviceRecordPublicId: String, archivePath: String) = BackupAttachment(publicId, serviceRecordPublicId, sequenceInRecord, displayName, mimeType, createdAt, updatedAt, archivePath)
     private fun attachmentArchivePath(publicId: String) = "attachments/$publicId"
 }

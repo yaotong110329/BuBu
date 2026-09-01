@@ -35,6 +35,7 @@ class ServiceFormViewModel(
     private val vehicleRepository: VehicleRepository,
     private val editId: Long? = null,
     private val initialVehicleId: Long? = null,
+    private val initialServiceTypeId: Long? = null,
     nowProvider: () -> LocalDateTime = LocalDateTime::now,
 ) : ViewModel() {
     private val initialNow = nowProvider()
@@ -50,6 +51,7 @@ class ServiceFormViewModel(
     private val saved = Channel<Unit>(Channel.BUFFERED)
     val savedEffects = saved.receiveAsFlow()
     private var preservedPaymentMethod: PaymentMethod? = null
+    private var initialServiceTypeApplied = false
 
     init {
         viewModelScope.launch { serviceRepository.ensureDefaultServiceTypes() }
@@ -71,6 +73,12 @@ class ServiceFormViewModel(
                         vehicleId = selectedId,
                         isLoading = false,
                     )
+                }
+                if (!initialServiceTypeApplied && editId == null) {
+                    types.firstOrNull { it.id == initialServiceTypeId }?.let { type ->
+                        initialServiceTypeApplied = true
+                        openTypeItemEditor(type)
+                    }
                 }
             }
         }
@@ -464,8 +472,9 @@ class ServiceFormViewModel(
             vehicleRepository: VehicleRepository,
             editId: Long? = null,
             initialVehicleId: Long? = null,
+            initialServiceTypeId: Long? = null,
         ): ViewModelProvider.Factory = viewModelFactory {
-            initializer { ServiceFormViewModel(serviceRepository, vehicleRepository, editId, initialVehicleId) }
+            initializer { ServiceFormViewModel(serviceRepository, vehicleRepository, editId, initialVehicleId, initialServiceTypeId) }
         }
     }
 }

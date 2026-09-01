@@ -1,8 +1,8 @@
 # BuBu 車庫
 
-BuBu 是供臺灣自用燃油汽車與機車使用的離線優先 Android App。正式版本為 **v1.1.0**；Phase 0–7 的功能、Google Drive 雲端備份與 Release Readiness 品質閘門已完成。
+BuBu 是供臺灣自用燃油汽車與機車使用的離線優先 Android App。正式版本為 **v1.1.1**；Phase 0–7 的功能、Google Drive 雲端備份與 Release Readiness 品質閘門已完成。Google Drive 的剩餘實機驗收情境會持續於 `TASKS.md` 追蹤。
 
-最新版 APK 可由 [GitHub Releases](https://github.com/yaotong110329/BuBu/releases/tag/v1.1.0) 下載。
+最新版 APK 可由 [GitHub Releases](https://github.com/yaotong110329/BuBu/releases/tag/v1.1.1) 下載。
 
 ## 已完成功能
 
@@ -32,6 +32,13 @@ BuBu 是供臺灣自用燃油汽車與機車使用的離線優先 Android App。
 - Material 3 深色／淺色主題與首頁、報表、設定三個頂層導覽頁
 - 預設可完全離線使用；Google Drive 備份為選用功能，不建立 BuBu 帳號、不進行資料同步，且無廣告或追蹤 SDK
 
+## V1.1.1 更新內容
+
+- 新增獨立「提醒」頁籤與保養週期設定；保養狀態由服務工單歷史推導，並支援里程與月份週期。
+- 汽車機油預設週期為 10,000 km／6 個月，機車機油預設週期為 1,000 km／6 個月；使用者可依車況調整或還原內建預設。
+- 新車從 0 km 開始追蹤時，可選擇以 0 km 作為尚無工單之保養項目的共同里程基準；實際工單一律優先。
+- 首頁只在有待處理或即將到期的保養時顯示摘要，不再提供「查看全部保養提醒」按鈕。
+
 ## V1.1.0 更新內容
 
 - 新增 Google Drive 完整備份與還原：雲端檔案和本機使用完全相同的 `.bubu` 格式。
@@ -44,7 +51,7 @@ BuBu 是供臺灣自用燃油汽車與機車使用的離線優先 Android App。
 
 | 元件 | 版本 |
 | --- | --- |
-| App | 1.1.0 (versionCode 2) |
+| App | 1.1.1 (versionCode 3) |
 | compileSdk / targetSdk / minSdk | 37 / 37 / 26 |
 | Android Gradle Plugin | 9.3.1 |
 | Gradle Wrapper | 9.6.1 |

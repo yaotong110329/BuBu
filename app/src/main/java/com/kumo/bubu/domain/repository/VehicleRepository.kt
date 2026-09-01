@@ -20,5 +20,7 @@ interface VehicleRepository {
 
     suspend fun setVehicleArchived(id: Long, isArchived: Boolean)
 
+    suspend fun setNewVehicleMaintenanceBaseline(id: Long, enabled: Boolean)
+
     suspend fun deleteUnreferencedVehicle(id: Long)
 }

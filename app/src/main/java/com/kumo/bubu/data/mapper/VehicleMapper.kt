@@ -19,6 +19,7 @@ fun VehicleEntity.toDomain(): Vehicle = Vehicle(
     powertrainType = powertrainType,
     trackingStartDateEpochDay = trackingStartDateEpochDay,
     trackingStartOdometerKm = trackingStartOdometerKm,
+    useNewVehicleMaintenanceBaseline = useNewVehicleMaintenanceBaseline,
     currentOdometerKm = currentOdometerKm,
     note = note,
     isArchived = isArchived,

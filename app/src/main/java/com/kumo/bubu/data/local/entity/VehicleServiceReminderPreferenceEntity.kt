@@ -4,6 +4,7 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.kumo.bubu.domain.model.MaintenanceReminderType
 
 /** Per-vehicle policy for the next reminder derived from a service type's history. */
 @Entity(
@@ -35,6 +36,8 @@ data class VehicleServiceReminderPreferenceEntity(
     val serviceTypeId: Long,
     val isEnabled: Boolean = true,
     val intervalKm: Long? = null,
+    val intervalMonths: Long? = null,
+    val reminderType: MaintenanceReminderType = MaintenanceReminderType.REPLACE,
     val baseOdometerKm: Long? = null,
     val sortOrder: Int = 0,
     val createdAt: Long,

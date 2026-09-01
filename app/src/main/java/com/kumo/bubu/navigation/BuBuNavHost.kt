@@ -91,6 +91,7 @@ private const val EDIT_FUEL_ROUTE = "fuel/edit/{$FUEL_ID_ARGUMENT}"
 private const val FUEL_ECONOMY_REVIEW_ROUTE = "fuel/economy-review"
 private const val ADD_SERVICE_ROUTE = "service/add"
 private const val ADD_SERVICE_FOR_VEHICLE_ROUTE = "service/add/{$VEHICLE_ID_ARGUMENT}"
+private const val SERVICE_TYPE_ID_ARGUMENT = "serviceTypeId"
 private const val SERVICE_RECORDS_ROUTE = "service/records"
 private const val SERVICE_ID_ARGUMENT = "serviceId"
 private const val EDIT_SERVICE_ROUTE = "service/edit/{$SERVICE_ID_ARGUMENT}"
@@ -155,16 +156,23 @@ fun BuBuNavHost(initialReminderId: Long? = null) {
                     onOpenReminders = { navController.navigate(REMINDERS_ROUTE) },
                 )
             }
-            composable(REMINDERS_ROUTE) {
+            composable(TopLevelDestination.REMINDERS.route) {
                 val viewModel: RemindersViewModel = viewModel(
                     factory = RemindersViewModel.factory(
                         reminderRepository,
+                        serviceRepository,
                         vehicleRepository,
                         application.container.reminderNotificationSettings,
                         application.container.reminderNotificationScheduler,
                     ),
                 )
-                RemindersRoute(viewModel = viewModel, onBack = { navController.popBackStack() })
+                RemindersRoute(
+                    viewModel = viewModel,
+                    onBack = null,
+                    onCreateMaintenance = { vehicleId, serviceTypeId ->
+                        navController.navigate("service/add/$vehicleId?serviceTypeId=$serviceTypeId")
+                    },
+                )
             }
             composable(
                 route = REMINDER_ROUTE,
@@ -174,6 +182,7 @@ fun BuBuNavHost(initialReminderId: Long? = null) {
                 val viewModel: RemindersViewModel = viewModel(
                     factory = RemindersViewModel.factory(
                         reminderRepository,
+                        serviceRepository,
                         vehicleRepository,
                         application.container.reminderNotificationSettings,
                         application.container.reminderNotificationScheduler,
@@ -556,12 +565,21 @@ fun BuBuNavHost(initialReminderId: Long? = null) {
                 ServiceFormRoute(viewModel, onSaved = { navController.popBackStack() }, onBack = { navController.popBackStack() })
             }
             composable(
-                route = ADD_SERVICE_FOR_VEHICLE_ROUTE,
-                arguments = listOf(navArgument(VEHICLE_ID_ARGUMENT) { type = NavType.LongType }),
+                route = "$ADD_SERVICE_FOR_VEHICLE_ROUTE?$SERVICE_TYPE_ID_ARGUMENT={$SERVICE_TYPE_ID_ARGUMENT}",
+                arguments = listOf(
+                    navArgument(VEHICLE_ID_ARGUMENT) { type = NavType.LongType },
+                    navArgument(SERVICE_TYPE_ID_ARGUMENT) { type = NavType.LongType; defaultValue = -1L },
+                ),
             ) { entry ->
                 val vehicleId = requireNotNull(entry.arguments?.getLong(VEHICLE_ID_ARGUMENT))
+                val serviceTypeId = entry.arguments?.getLong(SERVICE_TYPE_ID_ARGUMENT)?.takeIf { it >= 0L }
                 val viewModel: ServiceFormViewModel = viewModel(
-                    factory = ServiceFormViewModel.factory(serviceRepository, vehicleRepository, initialVehicleId = vehicleId),
+                    factory = ServiceFormViewModel.factory(
+                        serviceRepository,
+                        vehicleRepository,
+                        initialVehicleId = vehicleId,
+                        initialServiceTypeId = serviceTypeId,
+                    ),
                 )
                 ServiceFormRoute(viewModel, onSaved = { navController.popBackStack() }, onBack = { navController.popBackStack() })
             }

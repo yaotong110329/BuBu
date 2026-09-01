@@ -30,6 +30,7 @@ class BottomNavigationTest {
     @Test
     fun userCanSwitchBetweenAllTopLevelDestinations() {
         val destinations = listOf(
+            TopLevelDestination.REMINDERS,
             TopLevelDestination.REPORTS,
             TopLevelDestination.SETTINGS,
             TopLevelDestination.DASHBOARD,

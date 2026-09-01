@@ -32,6 +32,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.Switch
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
+import com.kumo.bubu.domain.model.MaintenanceReminderType
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -86,6 +87,7 @@ fun ServiceTypeManagementScreen(
     val activeTypes = state.types
         .filter { it.vehicleType == state.vehicleType && !it.isArchived }
         .sortedBy(ServiceType::sortOrder)
+    val selectedReminderVehicle = state.vehicles.firstOrNull { it.id == state.selectedReminderVehicleId }
     val activeTypeIds = activeTypes.map(ServiceType::id)
     var orderedTypeIds by remember(state.vehicleType, activeTypeIds) { mutableStateOf(activeTypeIds) }
     val typesById = activeTypes.associateBy(ServiceType::id)
@@ -173,6 +175,26 @@ fun ServiceTypeManagementScreen(
                         }
                     }
                 }
+                selectedReminderVehicle?.takeIf { it.trackingStartOdometerKm == 0L }?.let { vehicle ->
+                    item {
+                        androidx.compose.foundation.layout.Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(stringResource(R.string.service_reminder_new_vehicle_baseline))
+                                Text(
+                                    stringResource(R.string.service_reminder_new_vehicle_baseline_hint),
+                                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            Switch(
+                                checked = vehicle.useNewVehicleMaintenanceBaseline,
+                                onCheckedChange = { onEvent(ServiceTypeManagementEvent.NewVehicleMaintenanceBaselineChanged(it)) },
+                            )
+                        }
+                    }
+                }
             }
             items(orderedTypes.size, key = { orderedTypes[it].id }) { index ->
                 val type = orderedTypes[index]
@@ -240,18 +262,49 @@ fun ServiceTypeManagementScreen(
                         singleLine = true,
                     )
                     OutlinedTextField(
+                        value = state.reminderIntervalMonths,
+                        onValueChange = { onEvent(ServiceTypeManagementEvent.ReminderIntervalMonthsChanged(it)) },
+                        label = { Text(stringResource(R.string.service_reminder_interval_months)) },
+                        supportingText = { Text(stringResource(R.string.service_reminder_interval_months_hint)) },
+                        singleLine = true,
+                    )
+                    Text(stringResource(R.string.service_reminder_type))
+                    androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MaintenanceReminderType.entries.forEach { type ->
+                            FilterChip(
+                                selected = state.reminderType == type,
+                                onClick = { onEvent(ServiceTypeManagementEvent.ReminderTypeChanged(type)) },
+                                label = { Text(stringResource(type.labelRes())) },
+                            )
+                        }
+                    }
+                    OutlinedTextField(
                         value = state.reminderBaseOdometerKm,
                         onValueChange = { onEvent(ServiceTypeManagementEvent.ReminderBaseOdometerChanged(it)) },
                         label = { Text(stringResource(R.string.service_reminder_base_odometer_km)) },
                         supportingText = { Text(stringResource(R.string.service_reminder_base_odometer_hint)) },
                         singleLine = true,
                     )
+                    if (type.isBuiltIn && state.reminderPreferences.any { it.serviceTypeId == type.id }) {
+                        TextButton(
+                            onClick = { onEvent(ServiceTypeManagementEvent.RestoreDefaultReminder) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(stringResource(R.string.service_reminder_restore_default))
+                        }
+                    }
                 }
             },
             confirmButton = { TextButton(onClick = { onEvent(ServiceTypeManagementEvent.SaveReminder) }) { Text(stringResource(R.string.save_changes)) } },
             dismissButton = { TextButton(onClick = { onEvent(ServiceTypeManagementEvent.DismissReminderEditor) }) { Text(stringResource(R.string.cancel)) } },
         )
     }
+}
+
+private fun MaintenanceReminderType.labelRes(): Int = when (this) {
+    MaintenanceReminderType.REPLACE -> R.string.service_reminder_type_replace
+    MaintenanceReminderType.INSPECT -> R.string.service_reminder_type_inspect
+    MaintenanceReminderType.ESTIMATE -> R.string.service_reminder_type_estimate
 }
 
 @Composable

@@ -8,6 +8,8 @@ data class ServiceReminderPreference(
     val serviceTypeId: Long,
     val isEnabled: Boolean,
     val intervalKm: Long?,
+    val intervalMonths: Long?,
+    val reminderType: MaintenanceReminderType,
     val baseOdometerKm: Long?,
     val sortOrder: Int,
     val createdAt: Long,
@@ -19,6 +21,8 @@ data class ServiceReminderPreferenceInput(
     val serviceTypeId: Long,
     val isEnabled: Boolean,
     val intervalKm: Long?,
+    val intervalMonths: Long? = null,
+    val reminderType: MaintenanceReminderType = MaintenanceReminderType.REPLACE,
     val baseOdometerKm: Long? = null,
     val sortOrder: Int,
 )
@@ -27,6 +31,7 @@ fun ServiceReminderPreferenceInput.validated(): ServiceReminderPreferenceInput {
     require(vehicleId > 0) { "A vehicle is required." }
     require(serviceTypeId > 0) { "A service type is required." }
     require(intervalKm == null || intervalKm > 0) { "Reminder interval must be positive." }
+    require(intervalMonths == null || intervalMonths > 0) { "Reminder interval months must be positive." }
     require(baseOdometerKm == null || baseOdometerKm >= 0) { "Reminder base odometer cannot be negative." }
     require(sortOrder >= 0) { "Reminder sort order cannot be negative." }
     return this

@@ -148,5 +148,8 @@ private class SingleVehicleRepository(vehicle: Vehicle) : VehicleRepository {
     override suspend fun setVehicleArchived(id: Long, isArchived: Boolean) =
         error("Not used by this test.")
 
+    override suspend fun setNewVehicleMaintenanceBaseline(id: Long, enabled: Boolean) =
+        error("Not used by this test.")
+
     override suspend fun deleteUnreferencedVehicle(id: Long) = error("Not used by this test.")
 }

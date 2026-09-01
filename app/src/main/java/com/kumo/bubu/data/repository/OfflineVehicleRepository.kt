@@ -86,6 +86,19 @@ class OfflineVehicleRepository(
         reconcileCurrentVehicleSelection()
     }
 
+    override suspend fun setNewVehicleMaintenanceBaseline(id: Long, enabled: Boolean) {
+        val existing = requireNotNull(vehicleDao.getById(id)) { "Vehicle does not exist." }
+        require(!enabled || existing.trackingStartOdometerKm == 0L) {
+            "New-vehicle maintenance baseline requires a 0 km tracking start."
+        }
+        vehicleDao.update(
+            existing.copy(
+                useNewVehicleMaintenanceBaseline = enabled,
+                updatedAt = System.currentTimeMillis(),
+            ),
+        )
+    }
+
     override suspend fun deleteUnreferencedVehicle(id: Long) {
         val existing = requireNotNull(vehicleDao.getById(id)) { "Vehicle does not exist." }
         require(fuelRecordDao.countForVehicle(id) == 0) { "Vehicle has fuel records." }

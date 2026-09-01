@@ -19,6 +19,7 @@ import com.kumo.bubu.MainActivity
 import com.kumo.bubu.R
 import com.kumo.bubu.data.mapper.toDomain
 import com.kumo.bubu.domain.model.ReminderStatus
+import com.kumo.bubu.domain.model.MaintenanceReminderStatus
 import com.kumo.bubu.domain.model.ReminderSource
 import com.kumo.bubu.domain.model.status
 import kotlinx.coroutines.flow.first
@@ -138,6 +139,16 @@ class ReminderNotificationWorker(
                 )
             }
         }
+        val maintenanceCount = container.serviceRepository.observeMaintenanceReminders(today).first().count {
+            it.calculation.status == MaintenanceReminderStatus.UPCOMING ||
+                it.calculation.status == MaintenanceReminderStatus.DUE ||
+                it.calculation.status == MaintenanceReminderStatus.OVERDUE
+        }
+        if (maintenanceCount == 0) {
+            NotificationManagerCompat.from(applicationContext).cancel(ReminderNotifications.MAINTENANCE_NOTIFICATION_ID)
+        } else {
+            postMaintenanceNotification(maintenanceCount)
+        }
         return Result.success()
     }
 
@@ -174,6 +185,28 @@ class ReminderNotificationWorker(
                 .setSmallIcon(android.R.drawable.ic_popup_reminder)
                 .setContentTitle(applicationContext.getString(R.string.reminder_notification_title))
                 .setContentText(text)
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(true)
+                .build(),
+        )
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun postMaintenanceNotification(count: Int) {
+        val intent = Intent(applicationContext, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        val pendingIntent = PendingIntent.getActivity(
+            applicationContext,
+            ReminderNotifications.MAINTENANCE_NOTIFICATION_ID,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        NotificationManagerCompat.from(applicationContext).notify(
+            ReminderNotifications.MAINTENANCE_NOTIFICATION_ID,
+            NotificationCompat.Builder(applicationContext, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_popup_reminder)
+                .setContentTitle(applicationContext.getString(R.string.reminder_notification_title))
+                .setContentText(applicationContext.getString(R.string.maintenance_notification_summary, count))
                 .setContentIntent(pendingIntent)
                 .setAutoCancel(true)
                 .build(),

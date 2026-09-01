@@ -4,6 +4,19 @@ All notable changes to BuBu will be documented in this file. The format follows 
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-09-01
+
+### Added
+
+- A dedicated maintenance-reminders tab with per-vehicle maintenance interval settings, reminder cards, and a direct route to a preselected service work order.
+- Visible built-in mileage and monthly maintenance defaults, including 10,000 km / 6 months for car engine oil and 1,000 km / 6 months for motorcycle engine oil.
+- An opt-in 0 km new-vehicle maintenance baseline for vehicles tracked from 0 km; recorded service work orders remain authoritative.
+
+### Changed
+
+- Dashboard maintenance text now appears only when maintenance is due or upcoming; the separate "view all maintenance reminders" action was removed.
+- Complete backups and restores now retain maintenance reminder policies and reminder types.
+
 ## [1.1.0] - 2026-08-24
 
 ### Added

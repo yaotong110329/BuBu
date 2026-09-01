@@ -1,7 +1,9 @@
 package com.kumo.bubu.feature.dashboard
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -104,6 +106,27 @@ class DashboardScreenTest {
         composeRule.onNodeWithText("RAV4").performClick()
 
         assertEquals(3L, openedVehicleId)
+    }
+
+    @Test
+    fun dashboardHidesMaintenanceCopyWhenOnlyBaselineIsMissing() {
+        composeRule.setContent {
+            BuBuTheme {
+                DashboardScreen(
+                    state = DashboardUiState(
+                        vehicles = listOf(item(3, "RAV4", "ABC-1234")),
+                        isLoading = false,
+                    ),
+                    onAddVehicle = {},
+                    onOpenVehicleHistory = {},
+                    onAddFuel = {},
+                    onAddService = {},
+                )
+            }
+        }
+
+        composeRule.onAllNodesWithText("保養提醒：", substring = true).assertCountEquals(0)
+        composeRule.onAllNodesWithText("查看全部保養提醒").assertCountEquals(0)
     }
 
     private fun item(

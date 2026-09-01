@@ -9,6 +9,10 @@ import com.kumo.bubu.domain.model.ServiceType
 import com.kumo.bubu.domain.model.ServiceTypeInput
 import com.kumo.bubu.domain.model.ServiceReminderPreference
 import com.kumo.bubu.domain.model.ServiceReminderPreferenceInput
+import com.kumo.bubu.domain.model.MaintenanceReminderType
+import com.kumo.bubu.domain.model.defaultMaintenanceReminderType
+import com.kumo.bubu.domain.model.defaultReminderIntervalKm
+import com.kumo.bubu.domain.model.defaultReminderIntervalMonths
 import com.kumo.bubu.domain.model.Vehicle
 import com.kumo.bubu.domain.model.VehicleType
 import com.kumo.bubu.domain.repository.ServiceRepository
@@ -33,8 +37,10 @@ data class ServiceTypeManagementUiState(
     val error: Boolean = false,
     val reminderEditingType: ServiceType? = null,
     val reminderIntervalKm: String = "",
+    val reminderIntervalMonths: String = "",
     val reminderBaseOdometerKm: String = "",
     val reminderEnabled: Boolean = true,
+    val reminderType: MaintenanceReminderType = MaintenanceReminderType.REPLACE,
 )
 
 sealed interface ServiceTypeManagementEvent {
@@ -46,11 +52,15 @@ sealed interface ServiceTypeManagementEvent {
     data class DeleteCustomType(val id: Long) : ServiceTypeManagementEvent
     data class Reorder(val orderedIds: List<Long>) : ServiceTypeManagementEvent
     data class SelectReminderVehicle(val vehicleId: Long) : ServiceTypeManagementEvent
+    data class NewVehicleMaintenanceBaselineChanged(val enabled: Boolean) : ServiceTypeManagementEvent
     data class EditReminder(val type: ServiceType) : ServiceTypeManagementEvent
     data class ReminderIntervalChanged(val value: String) : ServiceTypeManagementEvent
+    data class ReminderIntervalMonthsChanged(val value: String) : ServiceTypeManagementEvent
     data class ReminderBaseOdometerChanged(val value: String) : ServiceTypeManagementEvent
     data class ReminderEnabledChanged(val enabled: Boolean) : ServiceTypeManagementEvent
+    data class ReminderTypeChanged(val value: MaintenanceReminderType) : ServiceTypeManagementEvent
     data object SaveReminder : ServiceTypeManagementEvent
+    data object RestoreDefaultReminder : ServiceTypeManagementEvent
     data object DismissReminderEditor : ServiceTypeManagementEvent
     data object Save : ServiceTypeManagementEvent
     data object DismissEditor : ServiceTypeManagementEvent
@@ -107,12 +117,19 @@ class ServiceTypeManagementViewModel(
                 change { copy(selectedReminderVehicleId = event.vehicleId) }
                 observePreferences(event.vehicleId)
             }
+            is ServiceTypeManagementEvent.NewVehicleMaintenanceBaselineChanged -> {
+                val vehicleId = _uiState.value.selectedReminderVehicleId ?: return
+                launch { vehicleRepository?.setNewVehicleMaintenanceBaseline(vehicleId, event.enabled) }
+            }
             is ServiceTypeManagementEvent.EditReminder -> openReminderEditor(event.type)
             is ServiceTypeManagementEvent.ReminderIntervalChanged -> change { copy(reminderIntervalKm = event.value.filter(Char::isDigit)) }
+            is ServiceTypeManagementEvent.ReminderIntervalMonthsChanged -> change { copy(reminderIntervalMonths = event.value.filter(Char::isDigit)) }
             is ServiceTypeManagementEvent.ReminderBaseOdometerChanged -> change { copy(reminderBaseOdometerKm = event.value.filter(Char::isDigit)) }
             is ServiceTypeManagementEvent.ReminderEnabledChanged -> change { copy(reminderEnabled = event.enabled) }
+            is ServiceTypeManagementEvent.ReminderTypeChanged -> change { copy(reminderType = event.value) }
             ServiceTypeManagementEvent.SaveReminder -> saveReminder()
-            ServiceTypeManagementEvent.DismissReminderEditor -> change { copy(reminderEditingType = null, reminderIntervalKm = "", reminderBaseOdometerKm = "") }
+            ServiceTypeManagementEvent.RestoreDefaultReminder -> restoreDefaultReminder()
+            ServiceTypeManagementEvent.DismissReminderEditor -> change { copy(reminderEditingType = null, reminderIntervalKm = "", reminderIntervalMonths = "", reminderBaseOdometerKm = "") }
             ServiceTypeManagementEvent.Save -> save()
             ServiceTypeManagementEvent.DismissEditor -> change { copy(isEditorVisible = false, editingId = null, name = "") }
             ServiceTypeManagementEvent.DismissError -> change { copy(error = false) }
@@ -137,9 +154,11 @@ class ServiceTypeManagementViewModel(
         change {
             copy(
                 reminderEditingType = type,
-                reminderIntervalKm = preference?.intervalKm?.toString().orEmpty(),
+                reminderIntervalKm = (preference?.intervalKm ?: type.defaultReminderIntervalKm())?.toString().orEmpty(),
+                reminderIntervalMonths = (preference?.intervalMonths ?: type.defaultReminderIntervalMonths())?.toString().orEmpty(),
                 reminderBaseOdometerKm = preference?.baseOdometerKm?.toString().orEmpty(),
                 reminderEnabled = preference?.isEnabled ?: true,
+                reminderType = preference?.reminderType ?: type.defaultMaintenanceReminderType(),
             )
         }
     }
@@ -149,9 +168,11 @@ class ServiceTypeManagementViewModel(
         val type = state.reminderEditingType ?: return
         val vehicleId = state.selectedReminderVehicleId ?: run { change { copy(error = true) }; return }
         val intervalKm = state.reminderIntervalKm.toLongOrNull()
+        val intervalMonths = state.reminderIntervalMonths.toLongOrNull()
         val baseOdometerKm = state.reminderBaseOdometerKm.toLongOrNull()
         if (
             (state.reminderIntervalKm.isNotBlank() && intervalKm == null) ||
+            (state.reminderIntervalMonths.isNotBlank() && intervalMonths == null) ||
             (state.reminderBaseOdometerKm.isNotBlank() && baseOdometerKm == null)
         ) {
             change { copy(error = true) }
@@ -164,12 +185,24 @@ class ServiceTypeManagementViewModel(
                     serviceTypeId = type.id,
                     isEnabled = state.reminderEnabled,
                     intervalKm = intervalKm,
+                    intervalMonths = intervalMonths,
+                    reminderType = state.reminderType,
                     baseOdometerKm = baseOdometerKm,
                     sortOrder = state.reminderPreferences.firstOrNull { it.serviceTypeId == type.id }?.sortOrder
                         ?: state.types.filter { it.vehicleType == type.vehicleType }.indexOf(type),
                 ),
             )
-            change { copy(reminderEditingType = null, reminderIntervalKm = "", reminderBaseOdometerKm = "") }
+            change { copy(reminderEditingType = null, reminderIntervalKm = "", reminderIntervalMonths = "", reminderBaseOdometerKm = "") }
+        }
+    }
+
+    private fun restoreDefaultReminder() {
+        val type = _uiState.value.reminderEditingType ?: return
+        val vehicleId = _uiState.value.selectedReminderVehicleId ?: return
+        if (!type.isBuiltIn) return
+        launch {
+            repository.deleteServiceReminderPreference(vehicleId, type.id)
+            change { copy(reminderEditingType = null, reminderIntervalKm = "", reminderIntervalMonths = "", reminderBaseOdometerKm = "") }
         }
     }
 

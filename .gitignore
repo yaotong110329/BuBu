@@ -25,6 +25,7 @@ captures/
 *.hprof
 outputs/
 .scratch/phone-window.xml
+.codex-remote-attachments/
 
 # OS files
 .DS_Store

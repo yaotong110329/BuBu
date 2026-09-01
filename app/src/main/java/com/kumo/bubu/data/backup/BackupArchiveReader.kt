@@ -89,7 +89,9 @@ object BackupArchiveReader {
                 (reminder.completedByExpenseRecordPublicId == null || reminder.completedByExpenseRecordPublicId in expenseIds)
         })
         require(data.serviceReminderPreferences.all { preference ->
-            preference.vehiclePublicId in vehicleIds && preference.serviceTypePublicId in typeIds
+            preference.vehiclePublicId in vehicleIds &&
+                preference.serviceTypePublicId in typeIds &&
+                preference.reminderType in com.kumo.bubu.domain.model.MaintenanceReminderType.entries.map { it.name }
         })
         require(data.attachments.all { it.serviceRecordPublicId in serviceIds })
         require(data.attachments.map(BackupAttachment::archivePath).toSet() == manifest.files

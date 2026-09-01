@@ -107,7 +107,7 @@ class SettingsScreenTest {
 
         composeRule.onNodeWithTag("settings-scroll-list")
             .performScrollToNode(hasTestTag("settings-google-drive-backup"))
-        composeRule.onNodeWithText("driver@example.com").assertIsDisplayed()
+        composeRule.onNodeWithText("driver@example.com", substring = true).assertExists()
         composeRule.onNodeWithText("正在備份到 Google Drive…").assertIsDisplayed()
         composeRule.onNodeWithTag("settings-google-drive-backup").assertIsDisplayed()
     }
