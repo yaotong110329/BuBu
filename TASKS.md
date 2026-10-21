@@ -2012,4 +2012,4 @@ rg -n "Firebase|TODO|FIXME|GlobalScope|OdometerCorrection|OdometerReplacement" a
 
 ## 1.1.2 GitHub 發布與 CB-12 跳過 — 2026-10-21
 
-**狀態：** 發布準備完成，待GitHub上傳與遠端驗證。依使用者指示將CB-12真實帳號完整驗收標記skipped，未宣稱通過，也未操作實際Drive。使用已通過驗證並安裝到原手機的同一份正式APK，發布原始碼、v1.1.2標籤、APK與SHA-256校驗檔。詳見[發布紀錄](docs/audit/V1_1_2_RELEASE_2026_10_21.md)。
+**狀態：** 已完成（2026-10-21）。原始碼與v1.1.2標籤已推送，GitHub Release已公開並設為最新版，附正式APK與SHA-256校驗檔。遠端附件重新下載比對通過，GitHub提供的APK摘要亦一致。CB-12真實帳號完整驗收依使用者指示標記skipped／未驗收，未操作實際Drive。私人文件已去識別化，原始備份、手機日誌及憑證未上傳。詳見[發布紀錄](docs/audit/V1_1_2_RELEASE_2026_10_21.md)。
