@@ -68,6 +68,18 @@ class FuelFormStateTest {
         assertEquals("31.616", overridden.pricePerLiter)
     }
 
+    @Test
+    fun failedDerivedPriceDoesNotClaimAnOldPriceSource() {
+        val state = validState(volumeLiters = "")
+            .copy(priceSource = FuelPriceSource.LAST_RECORD, priceEffectiveDateEpochDay = 20_000)
+            .withUserCalculationValue(FuelCalculationField.VOLUME, "0.001")
+            .withUserCalculationValue(FuelCalculationField.TOTAL_COST, Long.MAX_VALUE.toString())
+
+        assertEquals(FuelPriceSource.NONE, state.priceSource)
+        assertEquals(null, state.priceEffectiveDateEpochDay)
+        assertEquals(FuelFormError.CALCULATION_OVERFLOW, state.validate(today).errors[FuelFormField.PRICE])
+    }
+
     private fun validState(
         volumeLiters: String = "4.270",
         time: String = "",

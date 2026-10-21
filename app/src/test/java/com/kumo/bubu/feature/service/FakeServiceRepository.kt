@@ -29,7 +29,9 @@ class FakeServiceRepository : ServiceRepository {
     val savedReminderPreferences = mutableListOf<ServiceReminderPreferenceInput>()
     val reorderedTypeIds = mutableListOf<List<Long>>()
     val discardedPaths = mutableListOf<String>()
+    var beforeAttachmentStage: suspend () -> Unit = {}
     var nextTypeId = 100L
+    private val drafts = mutableMapOf<String, Set<String>>()
 
     override fun observeRecentServiceRecords(): Flow<List<ServiceRecord>> = records
 
@@ -37,9 +39,15 @@ class FakeServiceRepository : ServiceRepository {
 
     override suspend fun getServiceRecord(id: Long): ServiceRecordDetails? = details[id]
 
-    override suspend fun createServiceRecord(input: ServiceRecordInput): Long {
+    private val createdIds = mutableMapOf<String, Long>()
+
+    override suspend fun findServiceRecordIdByPublicId(publicId: String): Long? =
+        createdIds[publicId] ?: details.values.firstOrNull { it.record.publicId == publicId }?.record?.id
+
+    override suspend fun createServiceRecord(input: ServiceRecordInput, creationId: String?): Long {
+        creationId?.let { createdIds[it]?.let { id -> return id } }
         createdInputs += input
-        return createdInputs.size.toLong()
+        return createdInputs.size.toLong().also { id -> creationId?.let { createdIds[it] = id } }
     }
 
     override suspend fun updateServiceRecord(id: Long, input: ServiceRecordInput) {
@@ -84,18 +92,35 @@ class FakeServiceRepository : ServiceRepository {
     override fun observeMaintenanceReminders(today: LocalDate): Flow<List<DerivedMaintenanceReminder>> =
         maintenanceReminders
 
-    override suspend fun stageServiceAttachments(sourceUriStrings: List<String>): List<StagedServiceAttachment> =
-        sourceUriStrings.mapIndexed { index, _ ->
+    override suspend fun stageServiceAttachments(sourceUriStrings: List<String>, draftId: String?): List<StagedServiceAttachment> {
+        beforeAttachmentStage()
+        return sourceUriStrings.mapIndexed { index, _ ->
             StagedServiceAttachment(
                 relativePath = "service_attachments/staging/$index.jpg",
                 displayName = "$index.jpg",
                 mimeType = "image/jpeg",
             )
+        }.also { staged ->
+            if (draftId != null) drafts[draftId] = drafts[draftId].orEmpty() + staged.map { it.relativePath }
         }
-
-    override suspend fun discardStagedServiceAttachment(relativePath: String) {
-        discardedPaths += relativePath
     }
 
-    override suspend fun readServiceAttachmentBytes(relativePath: String): ByteArray? = null
+    override suspend fun discardStagedServiceAttachment(relativePath: String, draftId: String?) {
+        discardedPaths += relativePath
+        if (draftId != null) drafts[draftId] = drafts[draftId].orEmpty() - relativePath
+    }
+
+    override suspend fun recoverServiceDraftAttachments(draftId: String, relativePaths: Set<String>): Set<String> =
+        relativePaths.intersect(drafts[draftId].orEmpty())
+
+    override suspend fun discardServiceDraft(draftId: String) {
+        discardedPaths += drafts.remove(draftId).orEmpty()
+    }
+
+    override suspend fun releaseServiceDraft(draftId: String) {
+        drafts.remove(draftId)
+    }
+
+    override suspend fun readServiceAttachmentBytes(relativePath: String): ByteArray? =
+        if (drafts.values.any { relativePath in it }) byteArrayOf(1, 2, 3) else null
 }

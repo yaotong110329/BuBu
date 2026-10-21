@@ -7,6 +7,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -14,6 +16,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import android.content.Context
 import androidx.compose.ui.res.stringResource
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -55,12 +58,11 @@ import com.kumo.bubu.feature.settings.BackupReminderViewModel
 import com.kumo.bubu.feature.settings.RestorePreviewDialog
 import com.kumo.bubu.feature.settings.RestoreViewModel
 import com.kumo.bubu.feature.settings.CloudBackupListDialog
-import com.kumo.bubu.feature.settings.CloudBackupAuthorizationAction
 import com.kumo.bubu.feature.settings.CloudBackupViewModel
-import com.kumo.bubu.feature.settings.GoogleDriveAccount
 import com.kumo.bubu.feature.settings.GoogleDriveAuthorizationCoordinator
+import com.kumo.bubu.feature.settings.GoogleDriveAuthorizationGateway
+import com.kumo.bubu.domain.repository.CloudBackupRepository
 import com.kumo.bubu.domain.model.CloudBackup
-import com.kumo.bubu.domain.model.CsvExportRequest
 import com.kumo.bubu.feature.service.ServiceFormRoute
 import com.kumo.bubu.feature.service.ServiceFormViewModel
 import com.kumo.bubu.feature.service.ServiceRecordsRoute
@@ -92,6 +94,7 @@ private const val FUEL_ECONOMY_REVIEW_ROUTE = "fuel/economy-review"
 private const val ADD_SERVICE_ROUTE = "service/add"
 private const val ADD_SERVICE_FOR_VEHICLE_ROUTE = "service/add/{$VEHICLE_ID_ARGUMENT}"
 private const val SERVICE_TYPE_ID_ARGUMENT = "serviceTypeId"
+private const val ADD_SERVICE_WITH_TYPE_ROUTE = "$ADD_SERVICE_FOR_VEHICLE_ROUTE?$SERVICE_TYPE_ID_ARGUMENT={$SERVICE_TYPE_ID_ARGUMENT}"
 private const val SERVICE_RECORDS_ROUTE = "service/records"
 private const val SERVICE_ID_ARGUMENT = "serviceId"
 private const val EDIT_SERVICE_ROUTE = "service/edit/{$SERVICE_ID_ARGUMENT}"
@@ -106,7 +109,13 @@ private const val REMINDER_ID_ARGUMENT = "reminderId"
 private const val REMINDER_ROUTE = "$REMINDERS_ROUTE/{$REMINDER_ID_ARGUMENT}"
 
 @Composable
-fun BuBuNavHost(initialReminderId: Long? = null) {
+fun BuBuNavHost(
+    initialReminderId: Long? = null,
+    initialOpenReminders: Boolean = false,
+    onNotificationHandled: () -> Unit = {},
+    cloudBackupRepositoryOverride: CloudBackupRepository? = null,
+    googleAuthorizationFactory: (Context) -> GoogleDriveAuthorizationGateway = ::GoogleDriveAuthorizationCoordinator,
+) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -121,14 +130,32 @@ fun BuBuNavHost(initialReminderId: Long? = null) {
     val csvExportRepository = application.container.csvExportRepository
     val backupRepository = application.container.backupRepository
     val restoreRepository = application.container.restoreRepository
-    val cloudBackupRepository = application.container.cloudBackupRepository
+    val cloudBackupRepository = cloudBackupRepositoryOverride ?: application.container.cloudBackupRepository
 
-    LaunchedEffect(initialReminderId) {
-        initialReminderId?.let { reminderId ->
-            navController.navigate("$REMINDERS_ROUTE/$reminderId") {
-                launchSingleTop = true
-            }
+    var interruptedMaintenanceRoute by rememberSaveable { mutableStateOf<String?>(null) }
+    val navigationReady = backStackEntry != null
+    LaunchedEffect(initialReminderId, initialOpenReminders, navigationReady) {
+        if (!navigationReady) return@LaunchedEffect
+        val destination = when {
+            initialReminderId != null -> "$REMINDERS_ROUTE/$initialReminderId"
+            initialOpenReminders -> REMINDERS_ROUTE
+            else -> return@LaunchedEffect
         }
+        if (initialReminderId == null &&
+            runCatching { navController.getBackStackEntry(REMINDERS_ROUTE) }.isSuccess
+        ) {
+            navController.currentBackStackEntry
+                ?.takeIf { it.destination.route == ADD_SERVICE_WITH_TYPE_ROUTE }
+                ?.arguments?.let { arguments ->
+                    interruptedMaintenanceRoute?.let { navController.clearBackStack(it) }
+                    val vehicleId = arguments.getLong(VEHICLE_ID_ARGUMENT)
+                    val serviceTypeId = arguments.getLong(SERVICE_TYPE_ID_ARGUMENT)
+                    interruptedMaintenanceRoute = "service/add/$vehicleId?serviceTypeId=$serviceTypeId"
+                }
+            navController.popBackStack(REMINDERS_ROUTE, inclusive = false, saveState = true)
+        }
+        navController.navigate(destination) { launchSingleTop = true }
+        onNotificationHandled()
     }
 
     Scaffold(
@@ -170,7 +197,10 @@ fun BuBuNavHost(initialReminderId: Long? = null) {
                     viewModel = viewModel,
                     onBack = null,
                     onCreateMaintenance = { vehicleId, serviceTypeId ->
-                        navController.navigate("service/add/$vehicleId?serviceTypeId=$serviceTypeId")
+                        val route = "service/add/$vehicleId?serviceTypeId=$serviceTypeId"
+                        navController.navigate(route) {
+                            restoreState = route == interruptedMaintenanceRoute
+                        }
                     },
                 )
             }
@@ -231,7 +261,6 @@ fun BuBuNavHost(initialReminderId: Long? = null) {
                 )
                 val csvExportState by csvExportViewModel.uiState.collectAsStateWithLifecycle()
                 var showCsvExportDialog by rememberSaveable { mutableStateOf(false) }
-                var pendingCsvExportRequest by remember { mutableStateOf<CsvExportRequest?>(null) }
                 val backupViewModel: BackupViewModel = viewModel(
                     factory = BackupViewModel.factory(backupRepository),
                 )
@@ -245,53 +274,88 @@ fun BuBuNavHost(initialReminderId: Long? = null) {
                 val backupReminderState by backupReminderViewModel.uiState.collectAsStateWithLifecycle()
                 var showBackupDialog by rememberSaveable { mutableStateOf(false) }
                 val restoreViewModel: RestoreViewModel = viewModel(
-                    factory = RestoreViewModel.factory(restoreRepository),
+                    factory = RestoreViewModel.factory(restoreRepository, cloudBackupRepository),
                 )
                 val restoreState by restoreViewModel.uiState.collectAsStateWithLifecycle()
                 var showRestoreDialog by rememberSaveable { mutableStateOf(false) }
                 var showDeleteRecoveryDialog by rememberSaveable { mutableStateOf(false) }
-                var cloudDownloadPath by remember { mutableStateOf<String?>(null) }
                 val cloudBackupViewModel: CloudBackupViewModel = viewModel(
                     factory = CloudBackupViewModel.factory(cloudBackupRepository),
                 )
                 val cloudBackupState by cloudBackupViewModel.uiState.collectAsStateWithLifecycle()
                 var showCloudBackupList by rememberSaveable { mutableStateOf(false) }
                 var backupPendingDeletion by remember { mutableStateOf<CloudBackup?>(null) }
-                var pendingCloudAction by remember { mutableStateOf<CloudBackupAuthorizationAction?>(null) }
-                var pendingGoogleDriveAccount by remember { mutableStateOf<GoogleDriveAccount?>(null) }
-                val googleDriveAuthorization = remember { GoogleDriveAuthorizationCoordinator(context) }
-                val authorizationLauncher = rememberLauncherForActivityResult(
-                    contract = ActivityResultContracts.StartIntentSenderForResult(),
-                ) { result ->
-                    val action = pendingCloudAction
-                    val account = pendingGoogleDriveAccount
-                    if (action != null && account != null) {
-                        googleDriveAuthorization.completeAuthorization(
-                            data = result.data,
-                            account = account,
-                            onAuthorized = { authorizedAccount, token ->
-                                cloudBackupViewModel.onAuthorized(action, authorizedAccount.email, token)
-                            },
-                            onError = cloudBackupViewModel::onAuthorizationFailed,
-                        )
+                val cloudAccountEmail = (cloudBackupState.connection as? com.kumo.bubu.domain.model.CloudBackupConnection.Connected)
+                    ?.account?.email
+                LaunchedEffect(cloudAccountEmail?.lowercase()) {
+                    backupPendingDeletion = null
+                    showCloudBackupList = false
+                }
+                val googleDriveAuthorization = remember(context, googleAuthorizationFactory) {
+                    googleAuthorizationFactory(context)
+                }
+                val resolution by cloudBackupViewModel.resolution.collectAsStateWithLifecycle()
+                val authorizationRequestId = cloudBackupState.authorizationRequestId
+                key(authorizationRequestId) {
+                    val authorizationLauncher = rememberLauncherForActivityResult(
+                        contract = ActivityResultContracts.StartIntentSenderForResult(),
+                    ) { result ->
+                        val request = authorizationRequestId?.let(cloudBackupViewModel::consumeAuthorizationResult)
+                        if (request != null) {
+                            if (result.resultCode != android.app.Activity.RESULT_OK) {
+                                cloudBackupViewModel.onAuthorizationCancelled()
+                                return@rememberLauncherForActivityResult
+                            }
+                            googleDriveAuthorization.completeAuthorization(
+                                data = result.data,
+                                account = requireNotNull(request.account),
+                                onAuthorized = { account, token -> cloudBackupViewModel.onAuthorized(request.action, account.email, token) },
+                                onError = cloudBackupViewModel::onAuthorizationFailed,
+                            )
+                        }
+                    }
+                    LaunchedEffect(resolution, authorizationRequestId) {
+                        authorizationRequestId?.let(cloudBackupViewModel::consumeResolution)?.let { request ->
+                            try {
+                                authorizationLauncher.launch(request)
+                            } catch (error: Exception) {
+                                android.util.Log.w("BuBuDriveAuth", "Unable to launch Google authorization.", error)
+                                cloudBackupViewModel.onAuthorizationFailed(com.kumo.bubu.domain.model.CloudBackupError.NotConnected)
+                            }
+                        }
+                    }
+                }
+                DisposableEffect(cloudBackupViewModel, restoreViewModel, activity) {
+                    onDispose {
+                        if (activity?.isChangingConfigurations != true) {
+                            cloudBackupViewModel.leaveSettings()
+                            csvExportViewModel.cancelDestination()
+                            restoreViewModel.clear()
+                        }
                     }
                 }
                 LaunchedEffect(cloudBackupViewModel, activity) {
-                    cloudBackupViewModel.authorizationRequests.collect { action ->
+                    cloudBackupViewModel.authorizationRequests.collect { request ->
+                        if (!cloudBackupViewModel.isPendingAuthorization(request.id)) return@collect
                         val hostActivity = activity
                         if (hostActivity == null) {
                             cloudBackupViewModel.onAuthorizationFailed(com.kumo.bubu.domain.model.CloudBackupError.NotConnected)
                         } else {
-                            pendingCloudAction = action
                             googleDriveAuthorization.authorize(
                                 activity = hostActivity,
-                                launcher = authorizationLauncher,
+                                onResolution = { requestToLaunch -> cloudBackupViewModel.onResolutionReady(request.id, requestToLaunch) },
                                 scope = coroutineScope,
-                                onAccountSelected = { account -> pendingGoogleDriveAccount = account },
+                                onAccountSelected = { account -> cloudBackupViewModel.onAccountSelected(request.id, account) },
                                 onAuthorized = { account, token ->
-                                    cloudBackupViewModel.onAuthorized(action, account.email, token)
+                                    cloudBackupViewModel.consumeAuthorization(request.id)?.let {
+                                        cloudBackupViewModel.onAuthorized(it.action, account.email, token)
+                                    }
                                 },
-                                onError = cloudBackupViewModel::onAuthorizationFailed,
+                                onError = { error ->
+                                    cloudBackupViewModel.consumeAuthorization(request.id)?.let {
+                                        cloudBackupViewModel.onAuthorizationFailed(error)
+                                    }
+                                },
                             )
                         }
                     }
@@ -303,27 +367,35 @@ fun BuBuNavHost(initialReminderId: Long? = null) {
                             "${context.packageName}.fileprovider",
                             File(request.download.localFilePath),
                         )
-                        cloudDownloadPath = request.download.localFilePath
                         showCloudBackupList = false
-                        restoreViewModel.preview(source.toString())
+                        restoreViewModel.previewCloudDownload(source.toString(), request.download)
                         showRestoreDialog = true
                     }
                 }
                 LaunchedEffect(restoreState.completed) {
                     if (restoreState.completed) {
                         showRestoreDialog = false
-                        cloudDownloadPath?.let { File(it).delete() }
-                        cloudDownloadPath = null
                         restoreViewModel.clear()
                     }
                 }
-                val createCsvExportDocument = rememberLauncherForActivityResult(
-                    contract = ActivityResultContracts.CreateDocument("application/zip"),
-                ) { destination ->
-                    pendingCsvExportRequest?.let { request ->
-                        destination?.let { uri -> csvExportViewModel.export(request, uri.toString()) }
+                val csvDestinationRequestId by csvExportViewModel.destinationRequestId.collectAsStateWithLifecycle()
+                key(csvDestinationRequestId) {
+                    val createCsvExportDocument = rememberLauncherForActivityResult(
+                        contract = ActivityResultContracts.CreateDocument("application/zip"),
+                    ) { destination ->
+                        csvDestinationRequestId?.let { csvExportViewModel.onDestinationResult(it, destination?.toString()) }
                     }
-                    pendingCsvExportRequest = null
+                    LaunchedEffect(csvDestinationRequestId) {
+                        val requestId = csvDestinationRequestId
+                        if (requestId != null && csvExportViewModel.consumeDestinationLaunch(requestId)) {
+                            try {
+                                createCsvExportDocument.launch("bubu-export-${LocalDateTime.now().format(CSV_EXPORT_FILE_TIME_FORMAT)}.zip")
+                            } catch (error: Exception) {
+                                android.util.Log.w("BuBuCsvExport", "Unable to launch CSV destination selection.", error)
+                                csvExportViewModel.onDestinationLaunchFailed(requestId)
+                            }
+                        }
+                    }
                 }
                 val createBackupDocument = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.CreateDocument("application/octet-stream"),
@@ -432,12 +504,8 @@ fun BuBuNavHost(initialReminderId: Long? = null) {
                         state = csvExportState,
                         onEvent = csvExportViewModel::onEvent,
                         onConfirm = {
-                            csvExportViewModel.createRequest()?.let { request ->
-                                pendingCsvExportRequest = request
+                            if (csvExportViewModel.prepareDestination()) {
                                 showCsvExportDialog = false
-                                createCsvExportDocument.launch(
-                                    "bubu-export-${LocalDateTime.now().format(CSV_EXPORT_FILE_TIME_FORMAT)}.zip",
-                                )
                             }
                         },
                         onDismiss = { showCsvExportDialog = false },
@@ -460,8 +528,6 @@ fun BuBuNavHost(initialReminderId: Long? = null) {
                         onConfirm = restoreViewModel::restore,
                         onDismiss = {
                             showRestoreDialog = false
-                            cloudDownloadPath?.let { File(it).delete() }
-                            cloudDownloadPath = null
                             restoreViewModel.clear()
                         },
                     )
@@ -527,7 +593,7 @@ fun BuBuNavHost(initialReminderId: Long? = null) {
             }
             composable(ADD_VEHICLE_ROUTE) {
                 val viewModel: VehicleFormViewModel = viewModel(
-                    factory = VehicleFormViewModel.factory(vehicleRepository),
+                    factory = VehicleFormViewModel.factory(vehicleRepository, draftRepository = application.container.formDraftRepository),
                 )
                 VehicleFormRoute(
                     viewModel = viewModel,
@@ -537,7 +603,7 @@ fun BuBuNavHost(initialReminderId: Long? = null) {
             }
             composable(ADD_FUEL_ROUTE) {
                 val viewModel: FuelFormViewModel = viewModel(
-                    factory = FuelFormViewModel.factory(fuelRepository, fuelPriceRepository, vehicleRepository),
+                    factory = FuelFormViewModel.factory(fuelRepository, fuelPriceRepository, vehicleRepository, draftRepository = application.container.formDraftRepository),
                 )
                 FuelFormRoute(
                     viewModel = viewModel,
@@ -556,16 +622,17 @@ fun BuBuNavHost(initialReminderId: Long? = null) {
                         fuelPriceRepository,
                         vehicleRepository,
                         initialVehicleId = vehicleId,
+                        draftRepository = application.container.formDraftRepository,
                     ),
                 )
                 FuelFormRoute(viewModel, onSaved = { navController.popBackStack() }, onBack = { navController.popBackStack() })
             }
             composable(ADD_SERVICE_ROUTE) {
-                val viewModel: ServiceFormViewModel = viewModel(factory = ServiceFormViewModel.factory(serviceRepository, vehicleRepository))
+                val viewModel: ServiceFormViewModel = viewModel(factory = ServiceFormViewModel.factory(serviceRepository, vehicleRepository, draftRepository = application.container.formDraftRepository))
                 ServiceFormRoute(viewModel, onSaved = { navController.popBackStack() }, onBack = { navController.popBackStack() })
             }
             composable(
-                route = "$ADD_SERVICE_FOR_VEHICLE_ROUTE?$SERVICE_TYPE_ID_ARGUMENT={$SERVICE_TYPE_ID_ARGUMENT}",
+                route = ADD_SERVICE_WITH_TYPE_ROUTE,
                 arguments = listOf(
                     navArgument(VEHICLE_ID_ARGUMENT) { type = NavType.LongType },
                     navArgument(SERVICE_TYPE_ID_ARGUMENT) { type = NavType.LongType; defaultValue = -1L },
@@ -579,6 +646,7 @@ fun BuBuNavHost(initialReminderId: Long? = null) {
                         vehicleRepository,
                         initialVehicleId = vehicleId,
                         initialServiceTypeId = serviceTypeId,
+                        draftRepository = application.container.formDraftRepository,
                     ),
                 )
                 ServiceFormRoute(viewModel, onSaved = { navController.popBackStack() }, onBack = { navController.popBackStack() })
@@ -602,7 +670,7 @@ fun BuBuNavHost(initialReminderId: Long? = null) {
             }
             composable(route = EDIT_SERVICE_ROUTE, arguments = listOf(navArgument(SERVICE_ID_ARGUMENT) { type = NavType.LongType })) { entry ->
                 val serviceId = requireNotNull(entry.arguments?.getLong(SERVICE_ID_ARGUMENT))
-                val viewModel: ServiceFormViewModel = viewModel(factory = ServiceFormViewModel.factory(serviceRepository, vehicleRepository, serviceId))
+                val viewModel: ServiceFormViewModel = viewModel(factory = ServiceFormViewModel.factory(serviceRepository, vehicleRepository, serviceId, draftRepository = application.container.formDraftRepository))
                 ServiceFormRoute(viewModel, onSaved = { navController.popBackStack() }, onBack = { navController.popBackStack() })
             }
             composable(
@@ -611,7 +679,7 @@ fun BuBuNavHost(initialReminderId: Long? = null) {
             ) { entry ->
                 val fuelId = requireNotNull(entry.arguments?.getLong(FUEL_ID_ARGUMENT))
                 val viewModel: FuelFormViewModel = viewModel(
-                    factory = FuelFormViewModel.factory(fuelRepository, fuelPriceRepository, vehicleRepository, fuelId),
+                    factory = FuelFormViewModel.factory(fuelRepository, fuelPriceRepository, vehicleRepository, fuelId, draftRepository = application.container.formDraftRepository),
                 )
                 FuelFormRoute(
                     viewModel = viewModel,
@@ -625,7 +693,7 @@ fun BuBuNavHost(initialReminderId: Long? = null) {
             ) { entry ->
                 val vehicleId = requireNotNull(entry.arguments?.getLong(VEHICLE_ID_ARGUMENT))
                 val viewModel: VehicleFormViewModel = viewModel(
-                    factory = VehicleFormViewModel.factory(vehicleRepository, vehicleId),
+                    factory = VehicleFormViewModel.factory(vehicleRepository, vehicleId, application.container.formDraftRepository),
                 )
                 VehicleFormRoute(
                     viewModel = viewModel,

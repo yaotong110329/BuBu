@@ -2,8 +2,6 @@ package com.kumo.bubu.data.backup
 
 import java.io.File
 import java.io.FileOutputStream
-import java.security.MessageDigest
-import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 import kotlinx.serialization.json.Json
 
@@ -14,22 +12,37 @@ object BackupArchiveWriter {
         createdAtEpochMillis: Long,
         recordCounts: Map<String, Int>,
         contents: List<BackupFileContent>,
+        openOutput: (File) -> FileOutputStream = ::FileOutputStream,
     ): BackupManifest {
+        var totalBytes = 0L
+        contents.forEach { content ->
+            BackupArchiveLimits.requireSize(content.bytes.size.toLong(), BackupArchiveLimits.maxBytesFor(content.relativePath).toLong())
+            totalBytes = BackupArchiveLimits.addContentSize(totalBytes, content.bytes.size.toLong())
+        }
         val manifest = BackupManifestBuilder.create(
             appVersion = appVersion,
             createdAtEpochMillis = createdAtEpochMillis,
             recordCounts = recordCounts,
             files = contents,
         )
-        FileOutputStream(destination).use { output ->
-            ZipOutputStream(output).use { archive ->
-                archive.writeEntry(MANIFEST_ENTRY, JSON.encodeToString(BackupManifest.serializer(), manifest).encodeToByteArray())
-                contents.sortedBy(BackupFileContent::relativePath).forEach { content ->
-                    archive.writeEntry(content.relativePath, content.bytes)
+        val manifestBytes = JSON.encodeToString(BackupManifest.serializer(), manifest).encodeToByteArray()
+        BackupArchiveLimits.requireSize(manifestBytes.size.toLong(), BackupArchiveLimits.MAX_MANIFEST_BYTES.toLong())
+        var completed = false
+        try {
+            openOutput(destination).use { output ->
+                ZipOutputStream(output).use { archive ->
+                    archive.writeEntry(MANIFEST_ENTRY, manifestBytes)
+                    contents.sortedBy(BackupFileContent::relativePath).forEach { content ->
+                        archive.writeEntry(content.relativePath, content.bytes)
+                    }
+                    archive.finish()
+                    BackupArchiveLimits.requireSize(destination.length(), BackupArchiveLimits.MAX_ARCHIVE_BYTES)
+                    output.fd.sync()
                 }
-                archive.finish()
-                output.fd.sync()
             }
+            completed = true
+        } finally {
+            if (!completed) destination.delete()
         }
         return manifest
     }
@@ -48,28 +61,5 @@ object BackupArchiveWriter {
 }
 
 object BackupArchiveVerifier {
-    fun isValid(archiveFile: File): Boolean = runCatching {
-        ZipFile(archiveFile).use { archive ->
-            val manifestEntry = requireNotNull(archive.getEntry("manifest.json"))
-            val manifest = archive.getInputStream(manifestEntry).use { input ->
-                JSON.decodeFromString(BackupManifest.serializer(), input.readBytes().decodeToString())
-            }
-            require(manifest.formatVersion == BACKUP_FORMAT_VERSION)
-            val expected = manifest.files.associateBy(BackupManifestFile::relativePath)
-            require(expected.size == manifest.files.size)
-            require(archive.entries().asSequence().map { it.name }.toSet() == expected.keys + "manifest.json")
-            expected.forEach { (path, metadata) ->
-                val entry = requireNotNull(archive.getEntry(path))
-                val bytes = archive.getInputStream(entry).use { it.readBytes() }
-                require(bytes.size.toLong() == metadata.sizeBytes)
-                require(bytes.sha256() == metadata.sha256)
-            }
-        }
-    }.isSuccess
-
-    private val JSON = Json { ignoreUnknownKeys = false }
+    fun isValid(archiveFile: File): Boolean = runCatching { BackupArchiveReader.read(archiveFile) }.isSuccess
 }
-
-private fun ByteArray.sha256(): String = MessageDigest.getInstance("SHA-256")
-    .digest(this)
-    .joinToString("") { byte -> "%02x".format(byte) }

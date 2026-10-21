@@ -1,4 +1,5 @@
 import java.util.Properties
+import java.util.concurrent.TimeUnit
 
 val localProperties = Properties().apply {
     val localPropertiesFile = rootProject.file("local.properties")
@@ -36,8 +37,8 @@ android {
         applicationId = "com.kumo.bubu"
         minSdk = 26
         targetSdk = 37
-        versionCode = 3
-        versionName = "1.1.1"
+        versionCode = 4
+        versionName = "1.1.2"
 
     }
 
@@ -93,6 +94,63 @@ tasks.register("verifyReleaseConfiguration") {
 
 tasks.configureEach {
     if (name == "preReleaseBuild") dependsOn("verifyReleaseConfiguration")
+}
+
+// Connected tests install and uninstall the app. Never run them on personal devices.
+object ConnectedTestSafety {
+    fun verify(adb: String, serial: String, avd: String, androidSerial: String) {
+        check(serial.matches(Regex("emulator-[0-9]+")) && avd.isNotBlank()) {
+            "Connected tests require -Pbubu.testEmulatorSerial=emulator-PORT and " +
+                "-Pbubu.testEmulatorAvd=DISPOSABLE_AVD. Physical devices are not allowed."
+        }
+        check(androidSerial == serial) { "Set ANDROID_SERIAL to the requested test emulator serial." }
+        fun readAdb(vararg arguments: String): String {
+            val process = ProcessBuilder(listOf(adb) + arguments).redirectErrorStream(true).start()
+            check(process.waitFor(20, TimeUnit.SECONDS)) {
+                process.destroyForcibly()
+                "ADB verification timed out; refusing to run connected tests."
+            }
+            val output = process.inputStream.bufferedReader().use { it.readText() }
+            check(process.exitValue() == 0) { "ADB verification failed; refusing to run connected tests." }
+            return output
+        }
+        val devices = readAdb("devices").lineSequence()
+            .map(String::trim)
+            .filter { it.isNotEmpty() && !it.startsWith("List of devices") && !it.startsWith("*") }
+            .map { it.split(Regex("\\s+")) }
+            .toList()
+        check(devices.size == 1 && devices.single().take(2) == listOf(serial, "device")) {
+            "ADB must contain only the specified disposable emulator. Disconnect other devices first."
+        }
+        val actualAvd = readAdb("-s", serial, "emu", "avd", "name")
+            .lineSequence().firstOrNull()?.trim()
+        check(actualAvd == avd) { "The emulator does not match the explicitly selected disposable AVD." }
+    }
+}
+
+val safetyAdbPath = androidComponents.sdkComponents.adb.get().asFile.absolutePath
+val testEmulatorSerial = providers.gradleProperty("bubu.testEmulatorSerial").orElse("").get()
+val testEmulatorAvd = providers.gradleProperty("bubu.testEmulatorAvd").orElse("").get()
+val testAndroidSerial = providers.environmentVariable("ANDROID_SERIAL").orElse("").get()
+val verifyConnectedTestDevice = tasks.register("verifyConnectedTestDevice") {
+    group = "verification"
+    description = "Refuses connected tests unless ADB contains only an explicitly selected disposable emulator."
+    inputs.properties(mapOf("adb" to safetyAdbPath, "serial" to testEmulatorSerial, "avd" to testEmulatorAvd, "androidSerial" to testAndroidSerial))
+    doLast {
+        val values = inputs.properties
+        ConnectedTestSafety.verify(values["adb"] as String, values["serial"] as String, values["avd"] as String, values["androidSerial"] as String)
+    }
+}
+tasks.configureEach {
+    if (name.startsWith("connected") && name.endsWith("AndroidTest")) {
+        dependsOn(verifyConnectedTestDevice)
+        inputs.properties(mapOf("adb" to safetyAdbPath, "serial" to testEmulatorSerial, "avd" to testEmulatorAvd, "androidSerial" to testAndroidSerial))
+        // Recheck immediately before the test action, even after a long APK build.
+        doFirst {
+            val values = inputs.properties
+            ConnectedTestSafety.verify(values["adb"] as String, values["serial"] as String, values["avd"] as String, values["androidSerial"] as String)
+        }
+    }
 }
 
 ksp {

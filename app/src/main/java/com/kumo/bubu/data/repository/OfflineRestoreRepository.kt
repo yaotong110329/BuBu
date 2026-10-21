@@ -3,14 +3,21 @@ package com.kumo.bubu.data.repository
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.os.StatFs
+import android.system.Os
+import android.system.OsConstants
+import android.util.Log
 import androidx.room.withTransaction
 import com.kumo.bubu.core.database.BuBuDatabase
 import com.kumo.bubu.data.attachment.PrivateAttachmentStore
 import com.kumo.bubu.data.backup.BackupArchiveReader
+import com.kumo.bubu.data.backup.BackupArchiveVerifier
+import com.kumo.bubu.data.backup.BackupArchiveLimits
 import com.kumo.bubu.data.backup.BackupAttachment
 import com.kumo.bubu.data.backup.BackupData
 import com.kumo.bubu.data.backup.BackupPreview
 import com.kumo.bubu.data.local.entity.ExpenseRecordEntity
+import com.kumo.bubu.data.local.entity.PendingAttachmentDeletionEntity
 import com.kumo.bubu.data.local.entity.FuelRecordEntity
 import com.kumo.bubu.data.local.entity.ServiceAttachmentEntity
 import com.kumo.bubu.data.local.entity.ServiceItemEntity
@@ -40,8 +47,11 @@ import java.io.FileOutputStream
 import java.io.FileInputStream
 import java.io.InputStream
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.ZipFile
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 
 class OfflineRestoreRepository(
@@ -50,6 +60,8 @@ class OfflineRestoreRepository(
     private val attachmentStore: PrivateAttachmentStore,
     private val backupRepository: OfflineBackupRepository,
     recoveryDirectory: File? = null,
+    // Count free blocks now, rather than assuming reclaimable app caches are allocated.
+    private val availablePrivateBytes: (File) -> Long = { StatFs(it.path).availableBytes },
 ) : RestoreRepository {
     private val applicationContext = context.applicationContext
     private val restoreCacheDirectory = File(applicationContext.cacheDir, RESTORE_CACHE_DIRECTORY)
@@ -67,10 +79,14 @@ class OfflineRestoreRepository(
             replaceCurrentData(candidate)
             RestoreResult(recoveryBackupFileName = recovery.name)
         } catch (error: Throwable) {
-            runCatching { replaceCurrentData(recovery) }
-                .getOrElse { recoveryError ->
+            withContext(NonCancellable) {
+                try {
+                    replaceCurrentData(recovery)
+                } catch (recoveryError: Throwable) {
                     throw RestoreException("Restore and automatic recovery both failed.", recoveryError)
                 }
+            }
+            if (error is CancellationException) throw error
             throw RestoreException("Restore failed; the previous data was recovered.", error)
         }
     }
@@ -111,6 +127,8 @@ class OfflineRestoreRepository(
             throw RestoreException("Unable to create private restore storage.")
         }
         val candidate = File(restoreCacheDirectory, ".${UUID.randomUUID()}.bubu")
+        val candidatePath = candidate.canonicalPath
+        activeRestoreCandidates.add(candidatePath)
         try {
             val source = requireNotNull(applicationContext.contentResolver.openInputStream(Uri.parse(sourceUriString))) {
                 "Selected backup cannot be opened."
@@ -121,13 +139,37 @@ class OfflineRestoreRepository(
                     output.fd.sync()
                 }
             }
+            // Copy the selected source first, including when it is itself a private cache URI.
+            cleanupStaleRestoreCandidates()
             action(candidate)
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: RestoreException) {
             throw error
         } catch (error: Throwable) {
             throw RestoreException("Backup could not be read or validated.", error)
         } finally {
-            candidate.delete()
+            try {
+                candidate.delete()
+            } finally {
+                activeRestoreCandidates.remove(candidatePath)
+            }
+        }
+    }
+
+    private fun cleanupStaleRestoreCandidates() {
+        val cutoff = System.currentTimeMillis() - RESTORE_CANDIDATE_GRACE_MILLIS
+        restoreCacheDirectory.listFiles().orEmpty().forEach { file ->
+            val identifier = file.name.removePrefix(".").removeSuffix(".$BACKUP_EXTENSION")
+            if (file.name != ".$identifier.$BACKUP_EXTENSION" ||
+                !runCatching { UUID.fromString(identifier).toString() == identifier }.getOrDefault(false)) return@forEach
+            runCatching {
+                val resolved = file.canonicalFile
+                if (resolved.parentFile == restoreCacheDirectory.canonicalFile && resolved.name == file.name &&
+                    resolved.path !in activeRestoreCandidates && resolved.isFile && resolved.lastModified() in 1L..cutoff) {
+                    check(resolved.delete()) { "Unable to remove an abandoned restore candidate." }
+                }
+            }.onFailure { Log.w("OfflineRestoreRepo", "Restore candidate cleanup will retry later.", it) }
         }
     }
 
@@ -135,8 +177,19 @@ class OfflineRestoreRepository(
         if (!recoveryDirectory.isDirectory && !recoveryDirectory.mkdirs()) {
             throw RestoreException("Unable to create recovery backup storage.")
         }
-        val recovery = File(recoveryDirectory, "recovery-${UUID.randomUUID()}.bubu")
-        backupRepository.writePrivateBackup(recovery)
+        val identifier = UUID.randomUUID()
+        val temporary = File(recoveryDirectory, ".recovery-$identifier.part")
+        val recovery = File(recoveryDirectory, "recovery-$identifier.bubu")
+        try {
+            // The writer syncs its bytes and validates the archive with the formal reader.
+            backupRepository.writePrivateBackup(temporary)
+            if (!temporary.renameTo(recovery)) {
+                throw RestoreException("Unable to publish the recovery backup.")
+            }
+            syncRecoveryDirectory()
+        } finally {
+            temporary.delete()
+        }
         recoveryDirectory.listFiles()
             .orEmpty()
             .filter { file -> file != recovery && file.extension == BACKUP_EXTENSION }
@@ -144,21 +197,52 @@ class OfflineRestoreRepository(
         recovery
     }
 
-    private fun ensureSpaceForRestore(candidate: File, preview: BackupPreview) {
+    private fun syncRecoveryDirectory() {
+        val descriptor = Os.open(
+            recoveryDirectory.absolutePath,
+            OsConstants.O_RDONLY,
+            0,
+        )
+        try {
+            Os.fsync(descriptor)
+        } finally {
+            Os.close(descriptor)
+        }
+    }
+
+    private suspend fun ensureSpaceForRestore(candidate: File, preview: BackupPreview) {
         val requiredBytes = try {
-            Math.addExact(candidate.length(), preview.totalByteCount)
+            val recoveryBytes = backupRepository.privateBackupStorageBudget()
+            val sqlite = database.openHelper.readableDatabase
+            val pageCount = sqlite.query("PRAGMA page_count").use { it.moveToFirst(); it.getLong(0) }
+            val pageSize = sqlite.query("PRAGMA page_size").use { it.moveToFirst(); it.getLong(0) }
+            val currentDatabaseBytes = Math.multiplyExact(pageCount, pageSize)
+            val walBytes = database.openHelper.databaseName?.let { name ->
+                File(applicationContext.getDatabasePath(name).path + "-wal").length()
+            } ?: 0L
+            val incomingDataBytes = preview.manifest.files.single { it.relativePath == "data.json" }.sizeBytes
+            // Budget data/index expansion and a transaction journal/WAL for either snapshot.
+            // This is headroom, not a reservation against another process consuming disk.
+            val databaseWorkspace = Math.addExact(
+                Math.multiplyExact(maxOf(currentDatabaseBytes, Math.multiplyExact(incomingDataBytes, 4)), 2),
+                Math.addExact(walBytes, SQLITE_RESTORE_HEADROOM_BYTES),
+            )
+            listOf(candidate.length(), preview.totalByteCount, recoveryBytes, databaseWorkspace)
+                .fold(0L, Math::addExact)
         } catch (_: ArithmeticException) {
             throw RestoreException("Backup is too large to restore safely.")
         }
-        require(restoreCacheDirectory.usableSpace >= requiredBytes) {
+        require(availablePrivateBytes(restoreCacheDirectory) >= requiredBytes) {
             "Not enough private storage to create a recovery backup and restore this file."
         }
     }
 
     private fun latestRecoveryFile(): File? = recoveryDirectory.listFiles()
         .orEmpty()
-        .filter { file -> file.isFile && file.extension == BACKUP_EXTENSION }
-        .maxByOrNull(File::lastModified)
+        .asSequence()
+        .filter { file -> file.isFile && file.name.startsWith("recovery-") && file.extension == BACKUP_EXTENSION }
+        .sortedByDescending(File::lastModified)
+        .firstOrNull(BackupArchiveVerifier::isValid)
 
     private fun File.toRecoveryBackup() = RecoveryBackup(
         fileName = name,
@@ -169,17 +253,56 @@ class OfflineRestoreRepository(
     private suspend fun replaceCurrentData(archiveFile: File) {
         val preview = BackupArchiveReader.read(archiveFile)
         val stagedAttachments = stageAttachments(archiveFile, preview.data.attachments)
-        val priorPaths = database.serviceAttachmentDao().getAllRelativePaths()
+        val priorPaths: List<String>
         try {
+            priorPaths = database.serviceAttachmentDao().getAllRelativePaths()
+            val pendingPaths = database.pendingAttachmentDeletionDao().getAll().map { it.relativePath }
             database.withTransaction {
                 database.clearAllTables()
                 insertData(preview.data, stagedAttachments)
+                (priorPaths + pendingPaths).distinct().forEach { path ->
+                    database.pendingAttachmentDeletionDao().insertIgnore(
+                        PendingAttachmentDeletionEntity(relativePath = path, createdAt = System.currentTimeMillis()),
+                    )
+                }
             }
         } catch (error: Throwable) {
-            stagedAttachments.values.forEach { attachmentStore.deleteManagedFile(it.relativePath) }
+            withContext(NonCancellable) {
+                stagedAttachments.values.forEach { staged ->
+                    runCatching {
+                        // Cancellation may be delivered after SQLite has committed.
+                        // Never delete a file still referenced by that committed snapshot.
+                        if (database.serviceAttachmentDao().countByRelativePath(staged.relativePath) == 0) {
+                            check(attachmentStore.deleteManagedFile(staged.relativePath)) {
+                                "Unreferenced restore attachment cleanup must be retried."
+                            }
+                        }
+                    }.onFailure { cleanupFailure ->
+                        error.addSuppressed(cleanupFailure)
+                        Log.w("OfflineRestoreRepo", "Restore attachment retained for safe cleanup retry.", cleanupFailure)
+                    }
+                }
+            }
             throw error
         }
-        priorPaths.forEach { attachmentStore.deleteManagedFile(it) }
+        cleanupPreviousAttachments()
+    }
+
+    private suspend fun cleanupPreviousAttachments() = withContext(NonCancellable) {
+        try {
+            database.pendingAttachmentDeletionDao().getAll().forEach { pending ->
+                runCatching {
+                    if (database.serviceAttachmentDao().countByRelativePath(pending.relativePath) > 0 ||
+                        attachmentStore.deleteManagedFile(pending.relativePath)) {
+                        database.pendingAttachmentDeletionDao().deleteById(pending.id)
+                    }
+                }.onFailure { error ->
+                    Log.w("OfflineRestoreRepo", "Committed restore attachment cleanup will be retried.", error)
+                }
+            }
+        } catch (error: Throwable) {
+            Log.w("OfflineRestoreRepo", "Committed restore attachment cleanup remains pending.", error)
+        }
     }
 
     private suspend fun stageAttachments(
@@ -204,7 +327,9 @@ class OfflineRestoreRepository(
                 }
                 staged
             } catch (error: Throwable) {
-                staged.values.forEach { attachmentStore.deleteManagedFile(it.relativePath) }
+                withContext(NonCancellable) {
+                    staged.values.forEach { attachmentStore.deleteManagedFile(it.relativePath) }
+                }
                 throw error
             }
         }
@@ -254,10 +379,8 @@ class OfflineRestoreRepository(
                     totalCostTwd = fuel.totalCostTwd,
                     isFullTank = fuel.isFullTank,
                     fuelProduct = fuel.fuelProduct?.let(FuelProduct::valueOf),
-                    fuelingMode = runCatching { FuelingMode.valueOf(fuel.fuelingMode) }.getOrDefault(FuelingMode.FULL_SERVICE),
-                    fuelEconomyStatisticsStatus = runCatching {
-                        com.kumo.bubu.domain.model.FuelEconomyStatisticsStatus.valueOf(fuel.fuelEconomyStatisticsStatus)
-                    }.getOrDefault(com.kumo.bubu.domain.model.FuelEconomyStatisticsStatus.UNREVIEWED),
+                    fuelingMode = FuelingMode.valueOf(fuel.fuelingMode),
+                    fuelEconomyStatisticsStatus = com.kumo.bubu.domain.model.FuelEconomyStatisticsStatus.valueOf(fuel.fuelEconomyStatisticsStatus),
                     note = fuel.note,
                     createdAt = fuel.createdAt,
                     updatedAt = fuel.updatedAt,
@@ -455,11 +578,15 @@ class OfflineRestoreRepository(
     }
 
     private companion object {
+        // Register before creation; release only after cleanup. Shared across repository instances.
+        val activeRestoreCandidates = ConcurrentHashMap.newKeySet<String>()
         const val RESTORE_CACHE_DIRECTORY = "restore"
         const val RECOVERY_DIRECTORY = "recovery-backups"
         const val BACKUP_EXTENSION = "bubu"
-        const val MAX_CANDIDATE_BYTES = 512L * 1024 * 1024
-        const val MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
+        const val MAX_CANDIDATE_BYTES = BackupArchiveLimits.MAX_ARCHIVE_BYTES
+        const val MAX_ATTACHMENT_BYTES = BackupArchiveLimits.MAX_ATTACHMENT_BYTES
+        const val SQLITE_RESTORE_HEADROOM_BYTES = 16L * 1024 * 1024
+        const val RESTORE_CANDIDATE_GRACE_MILLIS = 24L * 60 * 60 * 1000
     }
 }
 

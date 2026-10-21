@@ -2,6 +2,7 @@ package com.kumo.bubu.data.cloud.drive
 
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -47,7 +48,9 @@ internal interface GoogleDriveBackupDataSource {
     fun delete(accessToken: String, fileId: String)
 }
 
-internal class HttpGoogleDriveBackupDataSource : GoogleDriveBackupDataSource {
+internal class HttpGoogleDriveBackupDataSource(
+    private val connectionFactory: (URL) -> HttpURLConnection = { it.openConnection() as HttpURLConnection },
+) : GoogleDriveBackupDataSource {
     override fun upload(accessToken: String, localFile: File, appProperties: Map<String, String>): DriveBackupFile {
         val metadata = createDriveBackupMetadataJson(localFile.name, appProperties)
         val created = createMetadataFile(accessToken, metadata)
@@ -95,12 +98,20 @@ internal class HttpGoogleDriveBackupDataSource : GoogleDriveBackupDataSource {
     override fun list(accessToken: String): List<DriveBackupFile> {
         val query = "appProperties has { key='app' and value='BuBu' }"
         val encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8.name())
-        val url = "$FILES_URL?spaces=appDataFolder&q=$encodedQuery&orderBy=createdTime%20desc&fields=files($FILE_FIELDS)&pageSize=100"
-        val connection = openConnection(url, accessToken, "GET")
-        val body = connection.readResponse()
-        val files = JSONObject(body).optJSONArray("files") ?: return emptyList()
+        val baseUrl = "$FILES_URL?spaces=appDataFolder&q=$encodedQuery&orderBy=createdTime%20desc&fields=nextPageToken,incompleteSearch,files($FILE_FIELDS)&pageSize=100"
         return buildList {
-            for (index in 0 until files.length()) add(files.getJSONObject(index).toDriveBackupFile())
+            var nextPageToken: String? = null
+            do {
+                val url = nextPageToken?.let { "$baseUrl&pageToken=${URLEncoder.encode(it, StandardCharsets.UTF_8.name())}" } ?: baseUrl
+                val body = JSONObject(openConnection(url, accessToken, "GET").readResponse())
+                if (body.optBoolean("incompleteSearch")) {
+                    throw IOException("Google Drive returned an incomplete backup inventory.")
+                }
+                body.optJSONArray("files")?.let { files ->
+                    for (index in 0 until files.length()) add(files.getJSONObject(index).toDriveBackupFile())
+                }
+                nextPageToken = body.optString("nextPageToken").takeIf { it.isNotBlank() }
+            } while (nextPageToken != null)
         }
     }
 
@@ -118,7 +129,7 @@ internal class HttpGoogleDriveBackupDataSource : GoogleDriveBackupDataSource {
     }
 
     private fun openConnection(url: String, accessToken: String, method: String): HttpURLConnection =
-        (URL(url).openConnection() as HttpURLConnection).apply {
+        connectionFactory(URL(url)).apply {
             requestMethod = method
             connectTimeout = TIMEOUT_MILLIS
             readTimeout = TIMEOUT_MILLIS

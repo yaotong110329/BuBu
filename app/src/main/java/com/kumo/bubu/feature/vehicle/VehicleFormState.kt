@@ -30,6 +30,9 @@ data class VehicleFormUiState(
     val isSaving: Boolean = false,
     val loadFailed: Boolean = false,
     val saveFailed: Boolean = false,
+    val isDraftSaving: Boolean = false,
+    val draftSaveFailed: Boolean = false,
+    val draftRestoreFailed: Boolean = false,
 ) {
     val isEditing: Boolean get() = vehicleId != null
 }

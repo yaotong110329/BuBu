@@ -16,7 +16,9 @@ interface ServiceRepository {
     fun observeRecentServiceRecords(): Flow<List<ServiceRecord>>
     fun observeServiceRecordDetails(vehicleId: Long): Flow<List<ServiceRecordDetails>>
     suspend fun getServiceRecord(id: Long): ServiceRecordDetails?
-    suspend fun createServiceRecord(input: ServiceRecordInput): Long
+    suspend fun findServiceRecordIdByPublicId(publicId: String): Long?
+
+    suspend fun createServiceRecord(input: ServiceRecordInput, creationId: String? = null): Long
     suspend fun updateServiceRecord(id: Long, input: ServiceRecordInput)
     suspend fun deleteServiceRecord(id: Long)
     fun observeServiceTypes(): Flow<List<ServiceType>>
@@ -31,8 +33,11 @@ interface ServiceRepository {
     suspend fun saveServiceReminderPreference(input: ServiceReminderPreferenceInput)
     suspend fun deleteServiceReminderPreference(vehicleId: Long, serviceTypeId: Long)
     fun observeMaintenanceReminders(today: LocalDate): Flow<List<DerivedMaintenanceReminder>>
-    suspend fun stageServiceAttachments(sourceUriStrings: List<String>): List<StagedServiceAttachment>
-    suspend fun discardStagedServiceAttachment(relativePath: String)
+    suspend fun stageServiceAttachments(sourceUriStrings: List<String>, draftId: String? = null): List<StagedServiceAttachment>
+    suspend fun discardStagedServiceAttachment(relativePath: String, draftId: String? = null)
+    suspend fun recoverServiceDraftAttachments(draftId: String, relativePaths: Set<String>): Set<String>
+    suspend fun discardServiceDraft(draftId: String)
+    suspend fun releaseServiceDraft(draftId: String)
     suspend fun readServiceAttachmentBytes(relativePath: String): ByteArray?
 }
 

@@ -36,7 +36,9 @@ interface FuelRepository {
 
     suspend fun getLastPriceForProduct(vehicleId: Long, fuelProduct: FuelProduct, dateEpochDay: Long): Long?
 
-    suspend fun createFuelRecord(input: FuelRecordInput): Long
+    suspend fun findFuelRecordIdByPublicId(publicId: String): Long?
+
+    suspend fun createFuelRecord(input: FuelRecordInput, creationId: String? = null): Long
 
     suspend fun updateFuelRecord(id: Long, input: FuelRecordInput)
 

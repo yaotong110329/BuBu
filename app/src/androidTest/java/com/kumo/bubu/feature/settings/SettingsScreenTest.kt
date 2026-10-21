@@ -129,6 +129,32 @@ class SettingsScreenTest {
         composeRule.onNodeWithText("下載並預覽").assertIsDisplayed()
     }
 
+    @Test
+    fun distinguishesBackupSizeLimitFromDestinationFailure() {
+        composeRule.setContent {
+            BuBuTheme { SettingsScreen(
+                onManageVehicles = {}, onManageServiceSettings = {},
+                backupUiState = BackupUiState(hasError = true, isTooLarge = true),
+            ) }
+        }
+        composeRule.onNodeWithTag("settings-scroll-list")
+            .performScrollToNode(hasTestTag("settings-create-backup"))
+        composeRule.onNodeWithText("備份超過目前可還原的大小上限，無法建立。").assertIsDisplayed()
+        composeRule.onAllNodesWithText("備份失敗，請確認儲存位置後再試一次。").assertCountEquals(0)
+    }
+
+    @Test
+    fun explainsThatOversizedRecoveryPreventedRestore() {
+        composeRule.setContent {
+            BuBuTheme { RestorePreviewDialog(
+                state = RestoreUiState(error = RestoreError.BACKUP_TOO_LARGE),
+                onConfirm = {}, onDismiss = {},
+            ) }
+        }
+        composeRule.onNodeWithText("目前資料超過復原備份的可還原上限，還原未執行。").assertIsDisplayed()
+        composeRule.onAllNodesWithText("還原失敗，已嘗試自動回復原有資料。").assertCountEquals(0)
+    }
+
     private fun cloudBackup() = CloudBackup(
         id = "backup",
         fileName = "bubu-backup-2026-08-24-163000.bubu",

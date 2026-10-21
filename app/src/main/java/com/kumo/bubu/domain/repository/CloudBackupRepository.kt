@@ -20,6 +20,9 @@ interface CloudBackupRepository {
 
     suspend fun downloadBackup(accessToken: String, backupId: String): CloudBackupDownload
 
+    /** Deletes only a private download created by this repository, never a selected source. */
+    fun discardDownload(download: CloudBackupDownload)
+
     suspend fun deleteBackup(accessToken: String, backupId: String)
 }
 
@@ -27,3 +30,9 @@ data class CloudBackupDownload(
     val backup: CloudBackup,
     val localFilePath: String,
 )
+
+/** Upload succeeded and was recorded, but the old-backup inventory or cleanup failed. */
+class CloudBackupRetentionException(
+    val uploadedBackup: CloudBackup,
+    cause: Throwable,
+) : Exception("Cloud backup uploaded, but retention did not complete.", cause)

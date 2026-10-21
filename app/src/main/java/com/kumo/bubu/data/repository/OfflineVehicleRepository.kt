@@ -42,14 +42,25 @@ class OfflineVehicleRepository(
 
     override suspend fun getVehicle(id: Long): Vehicle? = vehicleDao.getById(id)?.toDomain()
 
-    override suspend fun createVehicle(input: VehicleInput): Long {
+    override suspend fun findVehicleIdByPublicId(publicId: String): Long? = vehicleDao.getByPublicId(publicId)?.id
+
+    override suspend fun createVehicle(input: VehicleInput, creationId: String?): Long {
+        require(creationId == null || UUID.fromString(creationId).toString() == creationId) { "Invalid vehicle creation identity." }
+        creationId?.let { findVehicleIdByPublicId(it)?.let { id -> return id } }
         val validInput = input.validated()
-        val id = vehicleDao.insert(
-            validInput.toNewEntity(
-                publicId = UUID.randomUUID().toString(),
-                nowEpochMillis = System.currentTimeMillis(),
-            ),
-        )
+        val id = try {
+            vehicleDao.insert(
+                validInput.toNewEntity(
+                    publicId = creationId ?: UUID.randomUUID().toString(),
+                    nowEpochMillis = System.currentTimeMillis(),
+                ),
+            )
+        } catch (error: Throwable) {
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            // A competing retry can commit the same stable identity between lookup and insert.
+            creationId?.let { findVehicleIdByPublicId(it)?.let { id -> return id } }
+            throw error
+        }
         reconcileCurrentVehicleSelection()
         return id
     }

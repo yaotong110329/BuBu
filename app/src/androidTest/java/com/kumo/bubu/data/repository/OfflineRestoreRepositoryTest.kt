@@ -8,6 +8,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.kumo.bubu.core.database.BuBuDatabase
 import com.kumo.bubu.data.attachment.PrivateAttachmentStore
 import com.kumo.bubu.data.backup.BackupArchiveWriter
+import com.kumo.bubu.data.backup.BackupArchiveReader
 import com.kumo.bubu.data.backup.BackupData
 import com.kumo.bubu.data.backup.BackupFileContent
 import com.kumo.bubu.data.backup.BackupVehicle
@@ -20,6 +21,9 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -56,6 +60,9 @@ class OfflineRestoreRepositoryTest {
         val sourceBackup = backupRepository(sourceDatabase)
         sourceBackup.writePrivateBackup(candidate)
         targetDatabase.vehicleDao().insert(vehicle("original", "原有車"))
+        recoveryDirectory.mkdirs()
+        val previous = File(recoveryDirectory, "recovery-previous.bubu")
+        backupRepository(targetDatabase).writePrivateBackup(previous)
         val restoreRepository = OfflineRestoreRepository(
             context = context,
             database = targetDatabase,
@@ -69,13 +76,39 @@ class OfflineRestoreRepositoryTest {
 
         assertEquals(1, preview.vehicleCount)
         assertEquals(listOf("匯入車"), targetDatabase.vehicleDao().getAll().map(VehicleEntity::name))
+        assertFalse(previous.exists())
         assertEquals(1, recoveryDirectory.listFiles().orEmpty().count { it.extension == "bubu" })
         assertTrue(recoveryDirectory.listFiles().orEmpty().single().length() > 0)
     }
 
     @Test
-    fun restoresPreviousDataWhenVerifiedArchiveFailsDuringMigration() = runBlocking {
-        writeArchiveThatFailsDuringEntityMigration(candidate)
+    fun invalidNewerFileNeverReplacesTheLatestUsableRecoveryBackup() = runBlocking {
+        targetDatabase.vehicleDao().insert(vehicle("original", "原有車"))
+        recoveryDirectory.mkdirs()
+        val previous = File(recoveryDirectory, "recovery-previous.bubu")
+        backupRepository(targetDatabase).writePrivateBackup(previous)
+        assertTrue(previous.setLastModified(1_000))
+        val invalid = File(recoveryDirectory, "recovery-newer.bubu")
+        invalid.writeText("partial archive")
+        assertTrue(invalid.setLastModified(2_000))
+        val restoreRepository = OfflineRestoreRepository(
+            context, targetDatabase, attachmentStore(), backupRepository(targetDatabase), recoveryDirectory,
+        )
+
+        assertEquals(previous.name, restoreRepository.getLatestRecoveryBackup()?.fileName)
+        val exported = File(recoveryDirectory, "exported.bubu")
+        restoreRepository.exportLatestRecoveryBackup(Uri.fromFile(exported).toString())
+        assertArrayEquals(previous.readBytes(), exported.readBytes())
+        assertEquals(1, BackupArchiveReader.read(exported).data.vehicles.size)
+        assertTrue(restoreRepository.deleteLatestRecoveryBackup())
+        assertFalse(previous.exists())
+        assertTrue(invalid.exists())
+        assertNull(restoreRepository.getLatestRecoveryBackup())
+    }
+
+    @Test
+    fun invalidEnumFailsBeforeRecoveryAndKeepsTheOriginalSnapshot() = runBlocking {
+        writeArchiveWithUnknownVehicleType(candidate)
         targetDatabase.vehicleDao().insert(vehicle("original", "原有車"))
         val restoreRepository = OfflineRestoreRepository(
             context = context,
@@ -85,11 +118,20 @@ class OfflineRestoreRepositoryTest {
             recoveryDirectory = recoveryDirectory,
         )
 
-        val result = runCatching { restoreRepository.restore(Uri.fromFile(candidate).toString()) }
+        val before = File(context.cacheDir, "restore-before-${UUID.randomUUID()}.bubu")
+        val after = File(context.cacheDir, "restore-after-${UUID.randomUUID()}.bubu")
+        try {
+            backupRepository(targetDatabase).writePrivateBackup(before)
+            val result = runCatching { restoreRepository.restore(Uri.fromFile(candidate).toString()) }
 
-        assertTrue(result.isFailure)
-        assertEquals(listOf("原有車"), targetDatabase.vehicleDao().getAll().map(VehicleEntity::name))
-        assertEquals(1, recoveryDirectory.listFiles().orEmpty().count { it.extension == "bubu" })
+            assertTrue(result.isFailure)
+            assertTrue(recoveryDirectory.listFiles().orEmpty().isEmpty())
+            backupRepository(targetDatabase).writePrivateBackup(after)
+            assertEquals(BackupArchiveReader.read(before).data, BackupArchiveReader.read(after).data)
+        } finally {
+            before.delete()
+            after.delete()
+        }
     }
 
     @Test
@@ -119,7 +161,7 @@ class OfflineRestoreRepositoryTest {
         }
     }
 
-    private fun writeArchiveThatFailsDuringEntityMigration(destination: File) {
+    private fun writeArchiveWithUnknownVehicleType(destination: File) {
         val data = BackupData(
             vehicles = listOf(
                 BackupVehicle(

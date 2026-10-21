@@ -19,6 +19,7 @@ class FakeFuelRepository : FuelRepository {
     val fullTankSettings = mutableMapOf<String, Boolean>()
     val lastFuelProducts = mutableMapOf<String, FuelProduct>()
     val lastFuelingModes = mutableMapOf<String, FuelingMode>()
+    var failureAfterCreation: Exception? = null
     var lastPriceForProduct: Long? = null
     var odometerNeighbors = FuelOdometerNeighbors(previous = null, next = null)
 
@@ -45,9 +46,17 @@ class FakeFuelRepository : FuelRepository {
         dateEpochDay: Long,
     ): Long? = lastPriceForProduct
 
-    override suspend fun createFuelRecord(input: FuelRecordInput): Long {
+    private val createdIds = mutableMapOf<String, Long>()
+
+    override suspend fun findFuelRecordIdByPublicId(publicId: String): Long? =
+        createdIds[publicId] ?: records.value.firstOrNull { it.publicId == publicId }?.id
+
+    override suspend fun createFuelRecord(input: FuelRecordInput, creationId: String?): Long {
+        creationId?.let { createdIds[it]?.let { id -> return id } }
         createdInputs += input
-        return createdInputs.size.toLong()
+        val id = createdInputs.size.toLong().also { id -> creationId?.let { createdIds[it] = id } }
+        failureAfterCreation?.let { throw it }
+        return id
     }
 
     override suspend fun updateFuelRecord(id: Long, input: FuelRecordInput) {

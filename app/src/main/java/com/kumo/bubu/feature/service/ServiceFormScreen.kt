@@ -183,6 +183,12 @@ private fun ServiceFormContent(
                 loadAttachmentBytes,
             )
         }
+        if (state.isDraftSaving || state.draftSaveFailed) {
+            item {
+                Text(stringResource(if (state.draftSaveFailed) R.string.form_draft_save_error else R.string.form_draft_saving),
+                    color = if (state.draftSaveFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
         state.error?.let { error ->
             item { ServiceFormErrorMessage(error) }
         }
@@ -217,7 +223,7 @@ private fun ServiceSaveBar(
         Button(
             onClick = { onEvent(ServiceFormEvent.Save) },
             enabled = !state.isLoading && !state.isSaving &&
-                !state.isImportingAttachments && state.vehicles.isNotEmpty(),
+                !state.isImportingAttachments && !state.sourceInvalid && state.vehicles.isNotEmpty(),
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()

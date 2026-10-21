@@ -102,16 +102,23 @@ class OfflineServiceRepository(
         )
     }
 
-    override suspend fun createServiceRecord(input: ServiceRecordInput): Long =
+    override suspend fun findServiceRecordIdByPublicId(publicId: String): Long? =
+        serviceRecordDao.getByPublicId(publicId)?.id
+
+    override suspend fun createServiceRecord(input: ServiceRecordInput, creationId: String?): Long =
         attachmentOperationMutex.withLock {
+        creationId?.let { require(UUID.fromString(it).toString() == it) }
         val recordId = database.withTransaction {
+            creationId?.let { publicId ->
+                serviceRecordDao.getByPublicId(publicId)?.let { return@withTransaction it.id }
+            }
             val valid = input.validated()
             val vehicle = vehicleDao.getById(valid.vehicleId)
                 ?: throw ServiceRecordException.VehicleNotFound()
             if (vehicle.isArchived) throw ServiceRecordException.VehicleArchived()
             val now = System.currentTimeMillis()
             val newRecord = valid.toNewEntity(
-                publicId = UUID.randomUUID().toString(),
+                publicId = creationId ?: UUID.randomUUID().toString(),
                 sequence = serviceRecordDao.nextSequenceInDay(
                     valid.vehicleId,
                     valid.dateEpochDay,
@@ -475,6 +482,7 @@ class OfflineServiceRepository(
 
     override suspend fun stageServiceAttachments(
         sourceUriStrings: List<String>,
+        draftId: String?,
     ): List<StagedServiceAttachment> {
         if (sourceUriStrings.size > MAX_SERVICE_ATTACHMENTS_PER_RECORD) {
             throw ServiceAttachmentException.TooMany()
@@ -486,6 +494,9 @@ class OfflineServiceRepository(
         try {
             sourceUriStrings.forEach { sourceUri ->
                 staged += store.stage(sourceUri.toUri())
+                if (draftId != null) attachmentOperationMutex.withLock {
+                    store.retainDraft(draftId, store.draftPaths(draftId) + staged.last().relativePath)
+                }
             }
             return staged
         } catch (error: Throwable) {
@@ -501,6 +512,10 @@ class OfflineServiceRepository(
                         }
                 }
             }
+            if (draftId != null) withContext(NonCancellable) {
+                runCatching { store.retainDraft(draftId, store.draftPaths(draftId) - staged.map { it.relativePath }.toSet()) }
+                    .onFailure { Log.w(LOG_TAG, "Partially staged draft ownership will be recovered later.", it) }
+            }
             throw when (error) {
                 is ServiceAttachmentException -> error
                 is CancellationException -> error
@@ -509,10 +524,13 @@ class OfflineServiceRepository(
         }
     }
 
-    override suspend fun discardStagedServiceAttachment(relativePath: String) =
+    override suspend fun discardStagedServiceAttachment(relativePath: String, draftId: String?) =
         attachmentOperationMutex.withLock {
-        requireNotNull(attachmentStore) {
+        val store = requireNotNull(attachmentStore) {
             "App-private attachment storage is unavailable."
+        }
+        if (draftId != null) require(relativePath in store.draftPaths(draftId)) {
+            "Attachment does not belong to this draft."
         }
         database.withTransaction {
             require(serviceAttachmentDao.countByRelativePath(relativePath) == 0) {
@@ -521,7 +539,42 @@ class OfflineServiceRepository(
             queueAttachmentDeletion(relativePath, System.currentTimeMillis())
         }
         drainPendingAttachmentDeletionsSafely()
+        check(store.managedByteCount(relativePath) == null) { "Draft attachment cleanup will need retrying." }
+        if (draftId != null) store.retainDraft(draftId, store.draftPaths(draftId) - relativePath)
         }
+
+    override suspend fun recoverServiceDraftAttachments(draftId: String, relativePaths: Set<String>): Set<String> =
+        attachmentOperationMutex.withLock {
+            val store = attachmentStore ?: return@withLock emptySet()
+            val owned = store.draftPaths(draftId)
+            val valid = relativePaths.intersect(owned).filter { path ->
+                val count = store.managedByteCount(path)
+                count != null && count <= com.kumo.bubu.data.backup.BackupArchiveLimits.MAX_ATTACHMENT_BYTES &&
+                    serviceAttachmentDao.countByRelativePath(path) == 0
+            }.toSet()
+            owned.filterNot(valid::contains).forEach { path ->
+                if (serviceAttachmentDao.countByRelativePath(path) == 0) {
+                    queueAttachmentDeletion(path, System.currentTimeMillis())
+                }
+            }
+            drainPendingAttachmentDeletionsSafely()
+            store.retainDraft(draftId, valid)
+            valid
+        }
+
+    override suspend fun discardServiceDraft(draftId: String) = attachmentOperationMutex.withLock {
+        val store = attachmentStore ?: return@withLock
+        val owned = store.draftPaths(draftId)
+        val unreferenced = owned.filter { serviceAttachmentDao.countByRelativePath(it) == 0 }
+        unreferenced.forEach { queueAttachmentDeletion(it, System.currentTimeMillis()) }
+        drainPendingAttachmentDeletionsSafely()
+        check(unreferenced.all { store.managedByteCount(it) == null }) { "Draft attachment cleanup will need retrying." }
+        store.releaseDraft(draftId)
+    }
+
+    override suspend fun releaseServiceDraft(draftId: String) {
+        attachmentOperationMutex.withLock { attachmentStore?.releaseDraft(draftId) }
+    }
 
     override suspend fun readServiceAttachmentBytes(relativePath: String): ByteArray? =
         attachmentStore?.readManagedBytes(relativePath)
@@ -741,7 +794,10 @@ class OfflineServiceRepository(
             )
             database.withTransaction {
                 val referencedPaths = serviceAttachmentDao.getAllRelativePaths().toSet()
-                managedPaths.filterNot(referencedPaths::contains).forEach { relativePath ->
+                val drafts = store.attachmentDrafts()
+                drafts.filterValues { paths -> paths.all(referencedPaths::contains) }.keys.forEach { store.releaseDraft(it) }
+                val draftPaths = drafts.values.flatten().toSet()
+                managedPaths.filterNot { it in referencedPaths || it in draftPaths }.forEach { relativePath ->
                     queueAttachmentDeletion(relativePath, now)
                 }
             }

@@ -52,4 +52,5 @@ fun ServiceFormError.messageRes(): Int = when (this) {
     ServiceFormError.ATTACHMENT_LINK_FAILED -> R.string.service_error_attachment_link
     ServiceFormError.ODOMETER_WRITE_FAILED -> R.string.service_error_odometer_write
     ServiceFormError.SAVE_FAILED -> R.string.service_save_error
+    ServiceFormError.DRAFT_RESTORE_FAILED -> R.string.form_draft_restore_error
 }

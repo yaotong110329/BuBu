@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kumo.bubu.R
 import com.kumo.bubu.domain.model.VehicleType
@@ -60,6 +61,10 @@ fun DashboardRoute(
     onOpenReminders: () -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    LifecycleResumeEffect(viewModel) {
+        viewModel.onForeground()
+        onPauseOrDispose { viewModel.onBackground() }
+    }
     DashboardScreen(state, onAddVehicle, onOpenVehicleHistory, onAddFuel, onAddService, onOpenReminders)
 }
 

@@ -4,7 +4,9 @@ import com.kumo.bubu.domain.model.ServiceRecordType
 import com.kumo.bubu.domain.model.ServiceType
 import com.kumo.bubu.domain.model.Vehicle
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.serialization.Serializable
 
+@Serializable
 data class ServiceItemDraft(
     val draftKey: Long = nextServiceItemDraftKey(),
     val id: Long? = null,
@@ -21,6 +23,7 @@ data class ServiceItemDraft(
         get() = amount.trim().toLongOrNull()?.takeIf { it >= 0 }
 }
 
+@Serializable
 data class ServiceAttachmentDraft(
     val id: Long? = null,
     val relativePath: String,
@@ -53,6 +56,9 @@ data class ServiceFormUiState(
     val isImportingAttachments: Boolean = false,
     val error: ServiceFormError? = null,
     val editingId: Long? = null,
+    val sourceInvalid: Boolean = false,
+    val isDraftSaving: Boolean = false,
+    val draftSaveFailed: Boolean = false,
 ) {
     val selectedVehicle: Vehicle?
         get() = vehicles.firstOrNull { it.id == vehicleId }
@@ -74,6 +80,7 @@ data class ServiceFormUiState(
 enum class ServiceItemFeedback { ADDED, ALREADY_ADDED }
 
 enum class ServiceFormError {
+    DRAFT_RESTORE_FAILED,
     VEHICLE_REQUIRED,
     INVALID_DATE,
     FUTURE_DATE,
@@ -138,3 +145,9 @@ sealed interface ServiceFormEvent {
 private val serviceItemDraftKey = AtomicLong(0L)
 
 private fun nextServiceItemDraftKey(): Long = serviceItemDraftKey.incrementAndGet()
+
+internal fun reserveServiceItemDraftKeys(keys: List<Long>) {
+    require(keys.all { it > 0 && it < Long.MAX_VALUE }) { "Invalid service item draft identity." }
+    val maximum = keys.maxOrNull() ?: return
+    serviceItemDraftKey.updateAndGet { current -> maxOf(current, maximum) }
+}

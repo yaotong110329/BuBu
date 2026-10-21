@@ -3,6 +3,9 @@ package com.kumo.bubu.feature.reminder
 import com.kumo.bubu.domain.model.ManualReminderInput
 import com.kumo.bubu.domain.model.DerivedMaintenanceReminder
 import com.kumo.bubu.domain.model.MaintenanceBaseline
+import com.kumo.bubu.domain.model.MaintenanceIntervalPolicy
+import com.kumo.bubu.domain.model.MaintenanceReminderCalculator
+import com.kumo.bubu.domain.repository.ServiceRepository
 import com.kumo.bubu.domain.model.MaintenanceReminderCalculation
 import com.kumo.bubu.domain.model.MaintenanceReminderStatus
 import com.kumo.bubu.domain.model.MaintenanceReminderType
@@ -24,6 +27,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -35,6 +42,67 @@ import org.junit.Test
 class RemindersViewModelTest {
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule()
+
+    @Test
+    fun foregroundReminderPageCrossesMidnightWithoutAnyRepositoryEmission() = runTest {
+        var today = LocalDate.of(2026, 8, 15)
+        val services = object : ServiceRepository by FakeServiceRepository() {
+            override fun observeMaintenanceReminders(today: LocalDate): Flow<List<DerivedMaintenanceReminder>> =
+                MutableStateFlow(listOf(dateReminder(today, null), dateReminder(today, 8_000)))
+        }
+        val viewModel = RemindersViewModel(FakeReminderRepository(), services,
+            FakeVehicleRepository(listOf(vehicle())), FakeReminderNotificationSettings(),
+            FakeReminderNotificationScheduler(), todayProvider = { today })
+        val collection = backgroundScope.launch { viewModel.uiState.collect() }
+        runCurrent()
+        repeat(3) { viewModel.onForeground() }
+        runCurrent()
+        assertEquals(listOf(1L, 1L), viewModel.uiState.value.maintenanceRows.map { it.reminder.calculation.remainingDays })
+        today = LocalDate.of(2026, 8, 16)
+        advanceTimeBy(60_000)
+        runCurrent()
+        assertEquals(listOf(MaintenanceReminderStatus.DUE, MaintenanceReminderStatus.DUE),
+            viewModel.uiState.value.maintenanceRows.map { it.reminder.calculation.status })
+        collection.cancel()
+        viewModel.viewModelScope.cancel()
+    }
+
+    @Test
+    fun retainedViewModelRecalculatesDateAndMixedMaintenanceAfterBackgroundWithoutDataChanges() = runTest {
+        var today = LocalDate.of(2026, 8, 15)
+        val services = object : ServiceRepository by FakeServiceRepository() {
+            override fun observeMaintenanceReminders(today: LocalDate): Flow<List<DerivedMaintenanceReminder>> =
+                MutableStateFlow(listOf(dateReminder(today, mileage = null), dateReminder(today, mileage = 8_000)))
+        }
+        val viewModel = RemindersViewModel(FakeReminderRepository(), services,
+            FakeVehicleRepository(listOf(vehicle())), FakeReminderNotificationSettings(),
+            FakeReminderNotificationScheduler(), todayProvider = { today })
+        var collection = backgroundScope.launch { viewModel.uiState.collect() }
+        advanceUntilIdle()
+        assertEquals(listOf(MaintenanceReminderStatus.UPCOMING, MaintenanceReminderStatus.UPCOMING),
+            viewModel.uiState.value.maintenanceRows.map { it.reminder.calculation.status })
+        collection.cancel()
+        advanceTimeBy(5_001)
+        runCurrent()
+        today = LocalDate.of(2026, 8, 16)
+        collection = backgroundScope.launch { viewModel.uiState.collect() }
+        runCurrent()
+        assertEquals(listOf(MaintenanceReminderStatus.DUE, MaintenanceReminderStatus.DUE),
+            viewModel.uiState.value.maintenanceRows.map { it.reminder.calculation.status })
+        assertEquals(listOf(0L, 0L), viewModel.uiState.value.maintenanceRows.map { it.reminder.calculation.remainingDays })
+        collection.cancel()
+        viewModel.viewModelScope.cancel()
+    }
+
+    private fun dateReminder(today: LocalDate, mileage: Long?): DerivedMaintenanceReminder {
+        val baseline = MaintenanceBaseline(mileage, LocalDate.of(2026, 2, 16))
+        val policy = MaintenanceIntervalPolicy(if (mileage == null) null else 10_000, 6,
+            MaintenanceReminderType.REPLACE, reminderEnabled = true)
+        return DerivedMaintenanceReminder(1, if (mileage == null) 8 else 9,
+            if (mileage == null) "日期保養" else "混合保養", if (mileage == null) 0 else 1,
+            MaintenanceReminderType.REPLACE, baseline, intervalMileage = policy.intervalMileage,
+            intervalMonths = 6, calculation = MaintenanceReminderCalculator.calculate(baseline, policy, 9_000, today))
+    }
 
     @Test
     fun derivesDueSoonStatusFromTheVehicleCurrentOdometer() = runTest {
@@ -213,7 +281,7 @@ private class FakeReminderNotificationScheduler : ReminderNotificationScheduler 
     }
 }
 
-private class FakeReminderRepository : ReminderRepository {
+internal class FakeReminderRepository : ReminderRepository {
     val reminders = MutableStateFlow<List<VehicleReminder>>(emptyList())
     var createdInput: ManualReminderInput? = null
     val snoozedUntilById = mutableMapOf<Long, Long>()

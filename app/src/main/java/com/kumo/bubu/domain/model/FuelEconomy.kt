@@ -177,10 +177,12 @@ fun detectFuelEconomyOutlier(
     if (!candidate.isFullTank) return null
     val candidateEconomy = calculateFuelEconomyMilliKmPerLiterByRecord(existingRecords + candidate)[candidate.id]
         ?: return null
+    // The map retains segment endpoint order; select the recent window before sorting its values.
     val baseline = calculateFuelEconomyMilliKmPerLiterByRecord(existingRecords)
         .values
-        .sorted()
+        .toList()
         .takeLast(MAX_OUTLIER_BASELINE_SEGMENTS)
+        .sorted()
     if (baseline.size < MINIMUM_OUTLIER_BASELINE_SEGMENTS) return null
     val median = baseline[baseline.size / 2]
     val deviations = baseline.map { kotlin.math.abs(it - median) }.sorted()

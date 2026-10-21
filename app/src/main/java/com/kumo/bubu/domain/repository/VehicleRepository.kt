@@ -12,7 +12,9 @@ interface VehicleRepository {
 
     suspend fun getVehicle(id: Long): Vehicle?
 
-    suspend fun createVehicle(input: VehicleInput): Long
+    suspend fun findVehicleIdByPublicId(publicId: String): Long?
+
+    suspend fun createVehicle(input: VehicleInput, creationId: String? = null): Long
 
     suspend fun updateVehicle(id: Long, input: VehicleInput)
 

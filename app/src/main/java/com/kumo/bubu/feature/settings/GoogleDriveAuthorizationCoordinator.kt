@@ -5,7 +5,6 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.IntentSenderRequest
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
@@ -23,14 +22,34 @@ import kotlinx.coroutines.launch
 
 data class GoogleDriveAccount(val email: String)
 
-class GoogleDriveAuthorizationCoordinator(context: Context) {
+interface GoogleDriveAuthorizationGateway {
+    fun authorize(
+        activity: Activity,
+        onResolution: (IntentSenderRequest) -> Unit,
+        scope: CoroutineScope,
+        onAccountSelected: (GoogleDriveAccount) -> Unit,
+        onAuthorized: (GoogleDriveAccount, String) -> Unit,
+        onError: (CloudBackupError) -> Unit,
+    )
+
+    fun completeAuthorization(
+        data: Intent?,
+        account: GoogleDriveAccount,
+        onAuthorized: (GoogleDriveAccount, String) -> Unit,
+        onError: (CloudBackupError) -> Unit,
+    )
+
+    fun revoke(accountEmail: String, onComplete: () -> Unit, onError: (CloudBackupError) -> Unit)
+}
+
+class GoogleDriveAuthorizationCoordinator(context: Context) : GoogleDriveAuthorizationGateway {
     private val applicationContext = context.applicationContext
     private val credentialManager = CredentialManager.create(applicationContext)
     private val authorizationClient = Identity.getAuthorizationClient(applicationContext)
 
-    fun authorize(
+    override fun authorize(
         activity: Activity,
-        launcher: ActivityResultLauncher<IntentSenderRequest>,
+        onResolution: (IntentSenderRequest) -> Unit,
         scope: CoroutineScope,
         onAccountSelected: (GoogleDriveAccount) -> Unit,
         onAuthorized: (GoogleDriveAccount, String) -> Unit,
@@ -53,7 +72,7 @@ class GoogleDriveAuthorizationCoordinator(context: Context) {
             authorizationClient.authorize(request)
                 .addOnSuccessListener { result ->
                     if (result.hasResolution()) {
-                        launcher.launch(IntentSenderRequest.Builder(requireNotNull(result.pendingIntent).intentSender).build())
+                        onResolution(IntentSenderRequest.Builder(requireNotNull(result.pendingIntent).intentSender).build())
                     } else {
                         Log.d(LOG_TAG, "Google Drive granted scopes: ${result.grantedScopes}")
                         result.accessToken?.let { token -> onAuthorized(account, token) }
@@ -64,7 +83,7 @@ class GoogleDriveAuthorizationCoordinator(context: Context) {
         }
     }
 
-    fun completeAuthorization(
+    override fun completeAuthorization(
         data: Intent?,
         account: GoogleDriveAccount,
         onAuthorized: (GoogleDriveAccount, String) -> Unit,
@@ -78,7 +97,7 @@ class GoogleDriveAuthorizationCoordinator(context: Context) {
             .onFailure { onError(CloudBackupError.AuthorizationExpired) }
     }
 
-    fun revoke(accountEmail: String, onComplete: () -> Unit, onError: (CloudBackupError) -> Unit) {
+    override fun revoke(accountEmail: String, onComplete: () -> Unit, onError: (CloudBackupError) -> Unit) {
         val request = com.google.android.gms.auth.api.identity.RevokeAccessRequest.builder()
             .setAccount(Account(accountEmail, GOOGLE_ACCOUNT_TYPE))
             .setScopes(DRIVE_SCOPES)

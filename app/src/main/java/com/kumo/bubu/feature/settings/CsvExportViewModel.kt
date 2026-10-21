@@ -11,6 +11,7 @@ import com.kumo.bubu.domain.repository.CsvExportRepository
 import com.kumo.bubu.domain.repository.VehicleRepository
 import java.time.LocalDate
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
@@ -53,6 +54,11 @@ class CsvExportViewModel(
 ) : ViewModel() {
     private val controls = MutableStateFlow(CsvExportControls())
     private val writeState = MutableStateFlow(CsvExportWriteState())
+    private var pendingDestinationRequest: CsvExportRequest? = null
+    private var nextDestinationId = 0L
+    private var destinationNeedsLaunch = false
+    private val mutableDestinationRequestId = MutableStateFlow<Long?>(null)
+    val destinationRequestId = mutableDestinationRequestId.asStateFlow()
 
     val uiState = combine(
         vehicleRepository.observeVehicles(),
@@ -115,6 +121,39 @@ class CsvExportViewModel(
         }
         writeState.value = writeState.value.copy(error = null, exportedFileName = null)
         return CsvExportRequest(selected, start, end)
+    }
+
+    fun prepareDestination(): Boolean {
+        if (pendingDestinationRequest != null) return false
+        pendingDestinationRequest = createRequest() ?: return false
+        destinationNeedsLaunch = true
+        mutableDestinationRequestId.value = ++nextDestinationId
+        return true
+    }
+
+    fun consumeDestinationLaunch(requestId: Long): Boolean {
+        if (mutableDestinationRequestId.value != requestId || !destinationNeedsLaunch) return false
+        destinationNeedsLaunch = false
+        return true
+    }
+
+    fun onDestinationResult(requestId: Long, destinationUriString: String?) {
+        if (mutableDestinationRequestId.value != requestId) return
+        val request = pendingDestinationRequest ?: return
+        cancelDestination()
+        destinationUriString?.let { export(request, it) }
+    }
+
+    fun onDestinationLaunchFailed(requestId: Long) {
+        if (mutableDestinationRequestId.value != requestId) return
+        cancelDestination()
+        writeState.value = writeState.value.copy(error = CsvExportError.WRITE_FAILED)
+    }
+
+    fun cancelDestination() {
+        pendingDestinationRequest = null
+        destinationNeedsLaunch = false
+        mutableDestinationRequestId.value = null
     }
 
     fun export(request: CsvExportRequest, destinationUriString: String) {

@@ -11,8 +11,10 @@ import com.kumo.bubu.domain.model.CloudBackupRetention
 import com.kumo.bubu.domain.model.CloudBackupOrdering
 import com.kumo.bubu.domain.model.CloudBackupMetadataMapper
 import com.kumo.bubu.domain.repository.CloudBackupDownload
+import com.kumo.bubu.domain.repository.CloudBackupRetentionException
 import com.kumo.bubu.domain.repository.CloudBackupRepository
 import java.io.File
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -24,6 +26,7 @@ internal class OfflineCloudBackupRepository(
     private val connectionStore: DataStoreCloudBackupConnection,
 ) : CloudBackupRepository {
     private val cacheDirectory = File(context.applicationContext.cacheDir, CACHE_DIRECTORY)
+    private val downloads = PrivateCloudDownloadStore(cacheDirectory)
 
     override fun observeConnection(): Flow<CloudBackupConnection> = connectionStore.observe()
 
@@ -47,8 +50,18 @@ internal class OfflineCloudBackupRepository(
                 appProperties = metadataFrom(preview),
             ).toCloudBackup()
             connectionStore.updateLastBackupAt(uploaded.createdAtEpochMillis)
-            retainNewestBackups(accessToken)
+            try {
+                retainNewestBackups(accessToken)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                throw CloudBackupRetentionException(uploaded, error)
+            }
             uploaded
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: CloudBackupRetentionException) {
+            throw error
         } catch (error: CloudBackupException) {
             throw error
         } catch (error: Throwable) {
@@ -69,22 +82,20 @@ internal class OfflineCloudBackupRepository(
         }
     }
 
-    override suspend fun downloadBackup(accessToken: String, backupId: String): CloudBackupDownload = withContext(Dispatchers.IO) {
-        ensureCacheDirectory()
-        val backup = listBackups(accessToken).firstOrNull { it.id == backupId }
-            ?: throw CloudBackupException("The selected Google Drive backup no longer exists.")
-        val destination = File(cacheDirectory, "download-${backup.id}$BACKUP_EXTENSION")
-        try {
+    override suspend fun downloadBackup(accessToken: String, backupId: String): CloudBackupDownload = try {
+        downloads.create { destination ->
+            val backup = listBackups(accessToken).firstOrNull { it.id == backupId }
+                ?: throw CloudBackupException("The selected Google Drive backup no longer exists.")
             driveDataSource.download(accessToken, backupId, destination)
             BackupArchiveReader.read(destination)
-            CloudBackupDownload(backup, destination.absolutePath)
-        } catch (error: CloudBackupException) {
-            destination.delete()
-            throw error
-        } catch (error: Throwable) {
-            destination.delete()
-            throw CloudBackupException("Google Drive backup could not be downloaded or validated.", error)
+            backup
         }
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: CloudBackupException) {
+        throw error
+    } catch (error: Throwable) {
+        throw CloudBackupException("Google Drive backup could not be downloaded or validated.", error)
     }
 
     override suspend fun deleteBackup(accessToken: String, backupId: String) = withContext(Dispatchers.IO) {
@@ -94,6 +105,8 @@ internal class OfflineCloudBackupRepository(
             throw CloudBackupException("Google Drive backup could not be deleted.", error)
         }
     }
+
+    override fun discardDownload(download: CloudBackupDownload) = downloads.discard(download)
 
     private fun retainNewestBackups(accessToken: String) {
         val backups = driveDataSource.list(accessToken).mapNotNull { file -> file.toCloudBackupOrNull() }

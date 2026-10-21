@@ -23,4 +23,5 @@ fun FuelFormError.messageRes(): Int = when (this) {
     FuelFormError.POSITIVE_VOLUME_REQUIRED -> R.string.fuel_volume_error
     FuelFormError.INVALID_TOTAL_COST -> R.string.fuel_total_cost_error
     FuelFormError.INVALID_PRICE -> R.string.fuel_price_error
+    FuelFormError.CALCULATION_OVERFLOW -> R.string.fuel_calculation_overflow_error
 }

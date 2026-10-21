@@ -1,8 +1,15 @@
-# BuBu Phase 0–2 任務清單
+# BuBu 專案任務與驗證紀錄
+
+## 目前狀態（2026-10-21）
+
+- 正式版本為 v1.1.2／versionCode4，已完成正式簽章 APK 與原手機覆蓋更新，原資料核對保留。GitHub 發布包含同一份 APK 與 SHA-256 校驗檔，見[發布紀錄](docs/audit/V1_1_2_RELEASE_2026_10_21.md)。底部導覽為首頁、提醒、報表、設定四頁。
+- Release 1.1.1 audit tickets：01–16 全部完成（16／16）。最後 Ticket15 的保養歷史正式還原、非預設每車規則與回填／改期／刪除完成鏈驗證完成；最新 Debug／test APK、完整 JVM243、相關裝置27均通過，lint0 errors／125既有 warnings（新增0），雙軸最終審查0未解。13 的四個真正程序終止與14最近八區段修正證據保留。CB-12 真實 Google 單帳號完整驗收依使用者於2026-10-21指示跳過，未驗收；這批 audit 結案不代表 Spec 全能力已完成。
+- [實際能力與 Spec 差異](docs/audit/RELEASE_1_1_1_CAPABILITY_INVENTORY.md) 列出已實作、部分／未實作及待決範圍。歷史 Phase 完成標記是當時範圍的驗證紀錄，不代表 Spec 全項已完成；Spec 仍為最高權威。
+- 下列按日期累積的原始任務與驗證紀錄保留，判讀目前進度以本節與最新 ticket 狀態為準。
 
 ## Google Drive Cloud Backup enhancement
 
-**狀態：** 進行中（2026-08-25；雲端備份、還原、手動刪除與正式版簽署已完成；單一 Google 帳號的附件、五份保留與解除再連結實機驗收尚待完成）
+**狀態：** 功能與自動化檢查已完成；CB-12 真實帳號完整驗收依使用者於2026-10-21指示跳過，未驗收。下列原始完成條件保留供日後重啟驗收參考。
 
 ### CB-01：Google Cloud 設定與憑證安全文件
 
@@ -139,6 +146,8 @@
 - 測試只在 Drive API 邊界使用 fake／mock，不連線 Google。
 
 ### CB-12：雲端備份品質閘門與實機驗收
+
+**目前狀態：** skipped — 依使用者2026-10-21明確指示跳過。真實單帳號附件、最新五份保留、解除再連結等完整驗收未執行，不能視為通過；fixture 測試不能代替。此次不操作實際 Drive 備份，下列原始驗收條件保留。
 
 **前置任務：** CB-01 至 CB-11
 
@@ -1799,7 +1808,7 @@ rg -n "Firebase|TODO|FIXME|GlobalScope|OdometerCorrection|OdometerReplacement" a
 
 ## Post-v1 維護：油耗統計排除
 
-**狀態：** 已完成（2026-08-24）；JVM tests、debug build、lint、Android test APK、SM-S9280 Android 16 的 v12→v13 Room migration 儀器測試（8 項）與覆蓋安裝驗收均通過。
+**狀態：** 已完成（2026-08-24）；JVM tests、debug build、lint、Android test APK、Android 16 的 v12→v13 Room migration 儀器測試（8 項）與覆蓋安裝驗收均通過。
 
 ### 已完成範圍
 
@@ -1811,7 +1820,7 @@ rg -n "Firebase|TODO|FIXME|GlobalScope|OdometerCorrection|OdometerReplacement" a
 
 ## Post-v1 維護：保養週期與提醒
 
-**狀態：** 已完成（2026-08-28）。功能實作、Release APK、JVM／lint 與提醒、首頁畫面儀器測試皆已通過；SM-S9280 無線實機覆蓋安裝、冷啟動與操作驗收通過。
+**狀態：** 已完成（2026-08-28）。功能實作、Release APK、JVM／lint 與提醒、首頁畫面儀器測試皆已通過；無線實機覆蓋安裝、冷啟動與操作驗收通過。
 
 ### 已完成範圍
 
@@ -1823,6 +1832,184 @@ rg -n "Firebase|TODO|FIXME|GlobalScope|OdometerCorrection|OdometerReplacement" a
 
 ### 實機驗收
 
-- 正式簽署 APK 成功覆蓋安裝至 SM-S9280，保留既有 Altis 與 JET125 資料，冷啟動無 Android Runtime 崩潰。
+- 正式簽署 APK 成功覆蓋安裝，保留既有車輛資料，冷啟動無 Android Runtime 崩潰。
 - 首頁只在有需要處理或即將到期項目時顯示保養摘要，且不再顯示「查看全部保養提醒」；提醒頁可切換車輛並顯示需要處理、即將到期與未建立基準數量。
 - 現有「更換機油」提醒詳情正確顯示 10,000 km／6 個月、上次保養與下一次建議資訊；進入新增工單時正確預選相同耗材，未儲存即安全返回提醒頁。
+
+---
+
+## Release 1.1.1 Repository Deep Audit
+
+**狀態：** 已完成（2026-09-13）；僅稽核文件、使用者要求的 integration tests 與原始測試的 14→15 migration 註冊修正，未修改 production、schema、備份格式、navigation 或依賴。
+
+- 三份報告已完成：`docs/audit/RELEASE_1_1_1_AUDIT.md`、`TEST_GAPS.md`、`TECH_DEBT.md`；主報告包含 68 個失敗／邊界情境及證據分類。
+- 實際驗證：clean、assembleDebug、147 JVM tests、API35 完整 74 instrumentation tests（包含新增4項／14個歷史起點）通過；最終 lint 0 errors／137既有 warnings，新測試 compiler warning 已修正並重新編譯通過。
+- 開放項目：Critical 0／High 1／Medium 11／Low 2；M12 歷史測試缺口已補齊。真實磁碟不足、取消、process restart 與 Google 真實帳號驗收仍依報告獨立追蹤，未宣稱已驗證。
+- 完整技術版本、初次模擬器環境失敗與成功恢復證據記錄於主報告；Google Drive 原 CB-12 pending 狀態保持不變。本次未進行 production refactor。
+
+---
+
+## Release 1.1.1 Audit — 修正 tickets 發布
+
+**狀態：** 已完成（2026-09-13）；使用者核准 16 張票的粒度及全部無阻塞安排，已發布本機 tickets。此狀態僅指拆票／發布完成，修正實作尚未開始。
+
+- **追蹤 tickets：** `.scratch/release-1-1-1-hardening/issues/`，01–16，每票一檔，狀態為 `ready-for-agent`；票號為建議優先順序，不代表必要依賴。
+- 每票包含完整交付行為、Blocked by、稽核證據分類、驗收條件、範圍與驗證要求；待重現／Test Gap 票先建立實際回饋迴圈，不預先宣稱 runtime 缺陷。
+- 建議先執行 01 備份／還原大小契約、02 表單溢位、03 保養摘要通知；本次未實作修正、未修改 production／schema／format／依賴，原 CB-12 真實帳號驗收維持 pending。
+- 發布驗證：16 個唯一編號／檔名、必要欄位、全部 `ready-for-agent`／無阻塞、未勾選驗收條件及既有檔案保護；僅文件發布，不重跑無關 App build。
+
+---
+
+## Release 1.1.1 Audit Hardening — Ticket 01
+
+**狀態：** 已完成（2026-09-13）。執行使用者核准的第一張票「統一備份與還原大小契約」；02–16 尚未實作。
+
+- 原因與修正：writer／verifier 與 reader 限制分歧。現在共用既有 512 MiB 總內容／實際 archive、50 MiB data、1 MiB manifest、20 MiB 附件上限；預先核對附件 metadata，讀取與輸出再檢查實際大小，正式 reader 通過後才回報備份成功。一般失敗清除此次無效輸出，超限顯示資源文案。
+- Red → green：第一個公開 writer 回歸測試在修正前正確失敗（接受 20 MiB + 1），修正後通過；九項 archive regression 涵蓋各上限／+1、26 × 20 MiB、reader／verifier 一致性與既有 destination 保護。
+- 真實 Room／UI：520 MiB 額外附件快照在本機與還原前復原備份均被拒絕，原快照與圖片 bytes 保持不變；完整 round-trip、中／後段普通例外恢復與兩個超限提示 Compose 測試通過。
+- 最終依序驗證：`:app:assembleDebug`（1m26s）、`:app:testDebugUnitTest`（158／0 failures／0 errors／0 skipped，58s）、`:app:connectedDebugAndroidTest`（API35 77／0／0／0，4m32s）、`:app:lintDebug`（0 errors／137 warnings，3m13s）。最終 compiler 無新增 Kotlin warning；lint 類別／數量與基線一致。Logs：`outputs/release-1.1.1-audit/ticket-01-*.log`；JVM、connected 與 lint XML 已核對。
+- 變更範圍：共用 archive limits、reader／writer／verifier、私有附件 store、備份／還原 repositories、domain size exception、Backup／Restore UI state 與設定／預覽資源文案；新增或更新公開 archive、ViewModel、Room 與 Compose 測試，並更新 ticket 與 audit follow-up。沒有 schema／format／navigation／權限／簽署或依賴變更。
+- 實際版本：App1.1.1、DB15、backup format1；compile／target／min SDK37／37／26，AGP9.3.1、Gradle9.6.1、Kotlin2.4.10、KSP2.3.10、Room2.8.4、Compose BOM2026.06.01／Material3 1.4.0、JBR25.0.2；其餘依賴沿用主 audit 的完整版本清單。
+- 限制與後續：512 MiB exact-boundary 大檔是 JVM archive seam 驗證，未宣稱手機 heap 足以載入全部附件。M09 的 atomic/crash-safe 發布、M11 的 ENOSPC／取消／重啟、TD-04 heap measurement 與 CB-12 真實 Google 帳號驗收維持獨立追蹤。測試僅操作自有 fixtures，測試 AVD 已安全關閉。下一張建議為 02 表單溢位。
+
+---
+
+## Release 1.1.1 Audit Hardening — Ticket 02
+
+**狀態：** 已完成（2026-09-28）；表單溢位修正、針對性 red → green 與完整品質閘門均完成。
+
+- 修正範圍：三種加油欄位推算都攔截無法以 `Long` 表示的衍生結果，保留使用者明確輸入、清空衍生欄位並顯示資源化欄位錯誤；驗證失敗時不儲存，修正輸入後恢復既有推算與儲存流程。
+- 回歸證據：真實 `FuelFormViewModel.onEvent` 覆蓋 0.001 L／`Long.MAX_VALUE` 的兩種輸入順序、油量與總額溢位、不可儲存及修正後可儲存；state regression 確認失敗的衍生單價不沿用舊價格來源；Compose regression 確認儲存前即可看見錯誤。
+- 最終依序驗證：`:app:assembleDebug`（3m19s）、`:app:testDebugUnitTest`（163／0 failures／0 errors／0 skipped，28s）、`:app:connectedDebugAndroidTest`（API35 78／0／0／0，5m23s）、`:app:lintDebug`（0 errors／140 warnings，4m18s）；沒有 lint issue 指向本票 Fuel 變更檔案，`git diff --check` 通過。Logs：`outputs/release-1.1.1-audit/ticket-02-*.log`。
+- 環境恢復：本機原缺 Kotlin compiler artifacts 且 Gradle 遠端下載中斷；改由官方 Maven Central 完整下載、比對官方 SHA-1（並記錄 SHA-256），再用忽略輸出目錄內的一次性本機 repository 完成驗證。沒有 schema、backup format、navigation、權限或 dependency 版本變更；API 35 AVD 已安全關閉。
+- 實際版本未變：App1.1.1、DB15、backup format1；compile／target／min SDK37／37／26，AGP9.3.1、Gradle9.6.1、Kotlin2.4.10、KSP2.3.10、Room2.8.4、JBR25.0.2。
+
+---
+
+## Release 1.1.1 Audit Hardening — Ticket 03
+
+**狀態：** 已完成（2026-10-04）；保養摘要通知去重、即時失效清理及正式通知邊界回歸均完成。
+
+- 修正範圍：每日 worker 與服務資料監聽共用保養摘要協調器；DataStore 保留最近響鈴／顯示簽章。相同狀態不重送，狀態轉變可再提醒；工單與車輛／規則變化會取消或靜默更新既有摘要，發送前重新核對設定、權限和最新保養項目。普通提醒與備份提醒流程未變。
+- 回歸證據：單元測試含重建後重複 posting 的 red → green、狀態升級、失效清理、發送前停用交錯；API 35 整合測試以 Room、DataStore 與實際系統通知驗證工單新增／編輯／刪除、封存、停用及程序狀態重建。
+- 最終依序驗證：`:app:assembleDebug`、`:app:testDebugUnitTest`（168／0 failures／0 errors／0 skipped）、`:app:connectedDebugAndroidTest`（API 35 AVD 80／0／0／0）、`:app:lintDebug`（0 errors／140 warnings，沒有本票檔案新 issue）；`git diff --check` 通過。Logs：`outputs/release-1.1.1-audit/ticket-03-*-final.log`。
+- 實機限制：另一台已連線裝置因原安裝包簽章不相容而拒絕安裝測試 APK，0 項實機測試執行；AVD 80 項通過不可替代實機驗證。沒有 schema、backup format、navigation、權限或 dependency 變更；版本仍為 App1.1.1、DB15、AGP9.3.1、Gradle9.6.1、Kotlin2.4.10、KSP2.3.10、Room2.8.4、compile／target／min SDK37／37／26、JBR25.0.2。
+- 實機安全補註：安裝失敗及0項測試不代表裝置未受修改，AGP／UTP的測試收尾可能卸載原App。後續connected驗收必須隔離私人手機，只使用明確指定的可拋棄模擬器；保全與診斷的私人證據僅留於本機忽略目錄。
+- Drive資料保全原則：必須經原BuBu OAuth流程取得及驗證備份，不能單憑網頁隱藏資料狀態宣稱完整找回。保全前避免上傳空資料庫，以免觸發保留最新五份的永久清理。
+
+---
+
+## Release 1.1.1 Audit Hardening — Ticket 04
+
+**狀態：** 已完成（2026-10-04）；復原備份中途寫入與發布競態回歸、修正及本票品質閘門完成。
+
+- 紅燈證據：在正式 `restore()` 邊界注入 ZIP writer 已寫入部分 bytes 後的暫停／短寫，原實作會把未完成的新 `.bubu` 回報為最新，遮蔽舊有效復原備份。修正後同一測試轉綠，舊備份可匯出，原快照與附件 bytes 不變。
+- 修正範圍：復原備份先寫同目錄 `.part`，沿用 writer 的檔案同步及正式 reader 驗證，改名發布後同步目錄，再清理舊檔；查詢／匯出／刪除只選通過正式 reader 的有效 `.bubu`。補足成功清理與較新無效最終檔的 repository 回歸。
+- 最終依序驗證：`:app:assembleDebug`、`:app:testDebugUnitTest`（168／0 failures／0 errors／0 skipped）、相關 `:app:connectedDebugAndroidTest`（API 35 AVD 9／0／0／0）、`:app:lintDebug`（0 errors／140 warnings）及 `git diff --check` 通過。Logs：`outputs/release-1.1.1-audit/ticket-04-*.log`。
+- 限制：首次 red 因 AVD 未連線而未執行測試，重啟後才取得真正紅燈；實體裝置、程序終止與真實 ENOSPC 未驗證，後兩者仍由 12、13 追蹤。沒有 schema、backup format、navigation、權限或依賴變更；版本維持 App1.1.1、DB15、backup format1、AGP9.3.1、Gradle9.6.1、Kotlin2.4.10、KSP2.3.10、Room2.8.4、compile／target／min SDK37／37／26、JBR25.0.2。
+
+---
+
+## 加油缺漏補登 — 使用者資料修復
+
+**狀態：** 已完成（2026-10-05）；兩筆補登、估算備註、含估算量區間的油耗統計排除及完整備份回讀驗證通過。
+
+- 依使用者確認的金額與加油方式，參照前後紀錄及官方歷史價格估算缺漏的里程與油量；所有補登均明確標記估算與未知資訊，不能宣稱還原原始量測。
+- 修復前後均建立完整備份並由正式reader通過，逐筆比對確認只加入授權補登，原使用者輸入完整保留；相關估算區間排除油耗統計。
+- 原始車輛、日期、金額、里程、油量及備份筆數僅保留於本機私人證據，公開紀錄不包含這些數值。
+- 詳細依據、限制、執行狀態及驗證結果見 `outputs/phone-recovery-2026-10-04/FUEL-BACKFILL.md` 與 `fuel-backfill-verification.json`。沒有 App 程式、schema 或依賴變更；版本沿用 App1.1.1／DB15／backup format1，此次以實機 UI、真實備份比對及正式 reader 驗證，未安裝 APK、執行無關 build／lint 或 connected tests。
+
+---
+
+## 專案優化現況檢查 — 2026-10-09
+
+**狀態：** 檢查已完成；此狀態不代表剩餘 hardening tickets 已完成。
+
+- 依使用者要求檢查目前專案，以 `v1.1.1` 與未提交工作樹進行 Standards／Spec 雙軸審查，結果見 `docs/audit/OPTIMIZATION_REVIEW_2026_10_09.md`。
+- 01–04 已完成；05 部分完成，Google 授權旋轉回歸仍失敗；06–16 尚未完成。共 12 張尚未結案，CB-12 仍獨立 pending。
+- 新增確認：實機隔離限制缺少可執行防護、通知監聽缺少錯誤邊界、補登表單無法將未知時間留白。區分已重現故障、靜態缺口與驗證缺口，不以未驗證風險宣稱資料遺失。
+- 本次只更新檢查文件及任務狀態；沒有修改 App、版本、schema 或依賴，沒有操作手機或執行 connected tests。已核對既有回歸日誌與 `git diff --check`；本次未執行 build／tests／lint，不宣稱新的品質閘門通過。
+
+
+---
+
+## Release 1.1.1 Audit Hardening — Ticket 05
+
+**狀態：** 已完成（2026-10-10）；外部操作旋轉、操作歸屬、取消／失敗重試與私有下載清理回歸通過。
+
+- Google gateway 不捕捉舊 launcher；Google／CSV 以 retained 操作 ID 交付至當前 Activity，結果只消耗一次。離開設定頁失效舊操作，旋轉保留；不持久化 token。
+- 還原 ViewModel 擁有下載生命週期；正式 repository 隔離各次下載並攔截交付前取消，成功／取消只清自身檔案，清理失敗有紀錄。
+- 新增 connected 裝置防護與 README 使用方式；只有明確指定、ADB 唯一的可拋棄 AVD 可執行，configuration cache 儲存／重用與拒絕情境通過。未安裝或卸載手機 App、未修改實際 Drive 備份。
+- 驗證：assembleDebug／測試 APK 成功；JVM 178／0 failures／0 errors／0 skipped；完整 rotation／導航 11／0／0／0；清除 lint 空 super 後針對性下載回歸 2／0／0／0；lint 0 errors／126 warnings；git diff --check 通過。完整證據、範圍、雙軸復審與環境限制見 `docs/audit/TICKET_05_COMPLETION_2026_10_10.md`。
+- 版本維持 App1.1.1、DB15、backup format1；SDK37／37／26，AGP9.3.1、Gradle9.6.1、Kotlin2.4.10、KSP2.3.10、Room2.8.4、Compose BOM2026.06.01／Material3 1.4.0、JBR25.0.2。沒有 schema、format、權限、簽署或 dependency 變更。
+- 最新進度：01–05 完成，06–16 尚待完成，共 11 張未結案。CB-12 真實帳號驗收獨立 pending；下一張是系統回收後表單草稿恢復。
+
+
+## Release 1.1.1 Audit Hardening — Ticket 06
+
+**狀態：** 已完成（2026-10-11）。新增／編輯草稿、穩定建立識別、長稿私有 snapshot、附件歸屬、取消／來源失效清理、提交後故障與背景 completion 競態均完成公開回歸與修正。最新 build／完整 JVM 204／相關裝置 39 全綠，首輪完整裝置 99 全綠；最終 lint 0 errors／126 既有 warnings、git diff --check 通過。最新 APK 三種新增表單真正 cached process kill 回到同一 Task／ActivityRecord，車名／廠牌、加油四欄、服務里程與未完成 editor 均保留；詳細檔案、版本、雙軸復審、harness 修正與限制見 `docs/audit/TICKET_06_COMPLETION_2026_10_11.md`。未操作手機或 Drive。01–06 完成，07–16 共 10 張待完成，CB-12 真實帳號驗收獨立 pending。
+
+
+## Release 1.1.1 Audit Hardening — Ticket 07
+
+**狀態：** 已完成（2026-10-11）。首頁／提醒頁共用 retained 日期狀態，返回前景立即刷新、前景跨日重算，pause／dispose 取消單一計時工作；日期型與混合規則均取得公開 ViewModel／真實 Room Compose actual red→green。最終 build／完整 JVM 207／相關裝置 11 全綠；lint 0 errors／126 既有 warnings，git diff --check 通過。雙軸審查無阻塞，詳細檔案、版本、fixture 失敗與受控實驗限制見 `docs/audit/TICKET_07_COMPLETION_2026_10_11.md`。未操作手機或 Drive。01–07 完成，08–16 共 9 張待完成，CB-12 真實帳號獨立 pending。
+
+
+## Release 1.1.1 Audit Hardening — Ticket 08
+
+**狀態：** 已完成（2026-10-13）。通知選取正確有效車輛、依實際列表捲動與標示目標；摘要明確進提醒頁，保留四個頁籤。返回重送、冷Activity／重建、刪除／封存回退均驗證；中斷服務草稿只回復同車／同項目，連續中斷清除舊導航快照，避免串用草稿。最終build／完整JVM208／相關裝置14全綠；lint0 errors／126 warnings（與前票同數），git diff --check通過，雙軸審查無未解問題。詳見 `docs/audit/TICKET_08_COMPLETION_2026_10_13.md`。fixture啟動／捲動／通知發佈時序失敗獨立保存；未操作手機或Drive。01–08完成，09–16共8張未結案，CB-12真實帳號獨立pending。
+
+
+## Release 1.1.1 Audit Hardening — Ticket 09
+
+**狀態：** 已完成（2026-10-14）。帳號／過期／stale identifier驗證與切換清單、選取、完成訊息一致性完成；同帳號大小寫／時間更新保留狀態。build、完整JVM217及相關裝置13全綠；lint0 errors／126 warnings，雙軸0未解問題。未操作手機或實際Drive；CB-12真實帳號獨立pending。 詳見docs/audit/TICKET_09_COMPLETION_2026_10_14.md。01–09完成，10–16共7張待完成。
+
+- 2026-10-12 第一段：Connected(A)／Upload 授權 B 取得 actual red→green；操作前拒絕帳號不一致並提供資源提示。Debug build／CloudBackupViewModelTest 6 項全綠；第一段雙軸review 0 findings，diff --check通過。其他操作／過期與切換／完整品質閘門尚待驗證，08／09未結案。詳見 outputs/release-1.1.1-audit/TICKET_08_09_SESSION_2026_10_12.md。
+
+
+---
+
+## Release 1.1.1 Audit Hardening — Ticket 10
+
+**狀態：** 已完成（2026-10-14）。正式Drive清單跨短頁／空页跟隨token，拒絕不完整inventory；成功上傳後才清理保留五份，清理失敗保留新有效備份與時間，畫面明確顯示部分成功。build／完整JVM218／相關裝置28全綠，lint0 errors／126 warnings、diff check通過；雙軸0未解問題。 詳見docs/audit/TICKET_10_COMPLETION_2026_10_14.md。未操作手機或Drive。01–10完成，11–16共6張未結案，CB-12獨立pending。
+
+
+---
+
+## Release 1.1.1 Audit Hardening — Ticket 11
+
+**狀態：** 已完成（2026-10-17）。checksum 正確但語意非法的 archive 在預覽／復原建立前被拒絕，保留合法歷史類型、車種編輯後 policy 與 format1 defaults。build／完整 JVM236／test APK、相關裝置10項、最後 lint 0 errors／126既有 warnings、diff check 均通過；兩軸複審0未解。詳見[結案](docs/audit/TICKET_11_COMPLETION_2026_10_17.md)。下列記錄保留各階段當時狀態；目前01–11與16完成，12–15共4張未結案，CB-12獨立pending。
+
+- 2026-10-14 第一片：checksum／manifest正確的負數工單總額actual red17s→green；reader最小攔截，Debug build／完整JVM219/0/0/0（50s）、diff check通過。日期／跨擁有者／enum／policy／subtotal／舊格式及實際還原不變性仍待驗證；本票connected／lint／雙軸審查尚未執行，維持in-progress。證據outputs/release-1.1.1-audit/TICKET_11_SESSION_2026_10_14.md。
+
+- 2026-10-17 接續：已完成數值／日期／enum／subtotal／總額／跨車提醒／重複policy的公開語意回歸。審查發現舊全域服務類型與車種編輯後policy的分類差異屬合法歷史，兩案例已取得actual red→green，Gradle語意回歸16/0/0/0。測試已拆為254行語意、76行相容性與84行共用fixture；拆分後完整build／JVM／test APK正在執行，裝置／lint／最終雙軸復審仍待完成，不提前結案。搬遷後Windows中文路徑的AGP檢查及Gradle worker classpath限制已以僅測試用參數／同檔案英文路徑別名繞過；未改App依賴、schema或format，未操作手機／實際Drive。詳細證據見outputs/release-1.1.1-audit/TICKET_11_SESSION_2026_10_16.md。
+
+- 同日後續：上述拆分後完整build／JVM234/0/0/0／test APK已通過並保存全套XML。最終審查另外確認類型(vehicleType,name)與提醒非null source/key唯一性漏檢；已補兩個公開regression取得actual red，類型片段已green，提醒guard後完整閘門重跑中。兩軸最終review均0未解findings，見docs/audit/TICKET_11_REVIEW_2026_10_17.md。全新自有API35測試機正在初始化；裝置測試與lint尚未完成，ticket維持進行中。
+
+## Release 1.1.1 Audit Hardening — Ticket 16
+
+**狀態：** 已完成（2026-10-17）。已建立 routes／schema／操作來源的能力盤點，修正 README 四頁與 TASKS 目前階段標示，保留歷史驗證；沒有改 Spec、CONTEXT、ADR 或實作缺口功能。文件連結與來源檢查、runtime 雜湊未變、diff check 均通過，雙軸0未解，CB-12 獨立 pending。詳見[能力盤點](docs/audit/RELEASE_1_1_1_CAPABILITY_INVENTORY.md)、[結案](docs/audit/TICKET_16_COMPLETION_2026_10_17.md)與[審查](docs/audit/TICKET_16_REVIEW_2026_10_17.md)。01–10與16完成，11–15共5張未結案。
+
+## Release 1.1.1 Audit Hardening — Ticket 12
+
+**狀態：** 已完成（2026-10-17）。已逐片重現／修正取消傳遞、補償交付、staging遺留、commit交界仍被引用附件的誤刪、清理重試及空間漏算。最終build／完整JVM236／test APK、相關裝置21/0/0/0、lint0 errors／125 warnings、diff check皆通過；Standards硬規0／smells0、Spec0。SQLite FULL、復原與附件ENOSPC、補償再次失敗均經公開完整archive／附件bytes驗證；空間預檢為餘裕估計而非容量reservation。僅自有隔離AVD，未操作手機／實際Drive。見[結案](docs/audit/TICKET_12_COMPLETION_2026_10_17.md)、[驗證](docs/audit/TICKET_12_VALIDATION_2026_10_17.md)與[雙軸審查](docs/audit/TICKET_12_REVIEW_2026_10_17.md)。
+
+## Release 1.1.1 Audit Hardening — Ticket 13
+
+**狀態：** 已完成（2026-10-18）。四個真正程序終止／新程序重開最終重播全數通過；完整舊／新快照、9集合／10UUID／2附件bytes、有效recovery、明確手動復原及安全清理皆驗證。審查發現未涵蓋的私有暫存副本後，先actual red再最小修正24h／UUID／canonical歸屬回收，並以另一actual red→green補跨instance使用中保護。最終build／完整JVM243、普通裝置22通過，host缺參數2項明確skip，lint0 errors／125既有 warnings、雙軸0未解。未測裝置斷電，未操作手機／實際Drive。見[結案](docs/audit/TICKET_13_COMPLETION_2026_10_18.md)及[審查](docs/audit/TICKET_13_REVIEW_2026_10_18.md)。
+
+## Release 1.1.1 Audit Hardening — Ticket 14
+
+**狀態：** 已完成（2026-10-18）。油耗比較基準改為先取最近八個有效區段、再排序計算原中位數／MAD，沒有改原數值、滿箱錨點或使用者統計判定。實際誤報red→green；五個domain及兩個ViewModel回歸、完整JVM243、相關裝置8全綠；lint0 errors／125既有 warnings、兩軸0未解。見[結案](docs/audit/TICKET_14_COMPLETION_2026_10_18.md)。
+
+## Release 1.1.1 Audit Hardening — Ticket 15
+
+**狀態：** 已完成（2026-10-20）。兩個真實 Repository／正式備份還原案例通過，驗證CAR／MOTORCYCLE、封存控制、非預設每車規則、UUID／歷史關聯及附件 bytes。固定日期與5000km下，五種衍生狀態、實際工單優先於0km基準及無歷史不猜日期均正確；還原後真正回填、改期與刪除逐步重建合理完成鏈。審查後拆分測試210行／fixture121行，shared archive assertion依UUID比完整欄位與顯式順序；本票206個正式來源／設定雜湊未變，無需修改產品邏輯。最終Debug／test APK、完整JVM243、相關裝置27通過，lint0 errors／125既有warnings（新增0／移除0）、diff check與雙軸0未解。見[結案](docs/audit/TICKET_15_COMPLETION_2026_10_20.md)及[審查](docs/audit/TICKET_15_REVIEW_2026_10_20.md)。01–16全部完成；CB-12真實帳號驗收獨立pending，App仍為1.1.1／DB15／backup format1。
+
+## 1.1.2 升版與原手機更新 — 2026-10-20
+
+**狀態：** 已完成（2026-10-20）。1.1.2/code4正式簽章APK、Debug與完整JVM243通過；lint0 errors／125既有warnings，新增0。原手機同簽章覆蓋安裝成功，實際版本、APK雜湊及原安裝身分皆核對；首頁正常。前後完整備份均由目前正式Reader驗證，使用者資料及關聯保留；僅一筆驗車提醒updatedAt依啟動邏輯刷新，已精確核對，其餘全部欄位一致。完整私人證據留於本機，不納入Git。見[更新紀錄](docs/audit/V1_1_2_UPDATE_2026_10_20.md)。無schema／backup format／依賴／權限變更；當時尚未GitHub發布或完成CB-12。
+
+## 1.1.2 GitHub 發布與 CB-12 跳過 — 2026-10-21
+
+**狀態：** 發布準備完成，待GitHub上傳與遠端驗證。依使用者指示將CB-12真實帳號完整驗收標記skipped，未宣稱通過，也未操作實際Drive。使用已通過驗證並安裝到原手機的同一份正式APK，發布原始碼、v1.1.2標籤、APK與SHA-256校驗檔。詳見[發布紀錄](docs/audit/V1_1_2_RELEASE_2026_10_21.md)。

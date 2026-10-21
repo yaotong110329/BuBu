@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -45,7 +46,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -56,8 +56,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.content.ContextCompat
 import com.kumo.bubu.R
 import com.kumo.bubu.domain.model.ReminderSource
@@ -74,7 +78,14 @@ fun RemindersRoute(
     highlightedReminderId: Long? = null,
     modifier: Modifier = Modifier,
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    LifecycleResumeEffect(viewModel) {
+        viewModel.onForeground()
+        onPauseOrDispose { viewModel.onBackground() }
+    }
+    LaunchedEffect(viewModel, highlightedReminderId) {
+        highlightedReminderId?.let(viewModel::focusReminder)
+    }
     RemindersScreen(state, viewModel::onEvent, onBack, onCreateMaintenance, highlightedReminderId, modifier)
 }
 
@@ -156,6 +167,22 @@ fun RemindersScreen(
     }
 }
 
+private sealed interface ReminderListEntry {
+    val key: String
+
+    data object NotificationSettings : ReminderListEntry { override val key = "notification-settings" }
+    data object VehicleSelector : ReminderListEntry { override val key = "vehicle-selector" }
+    data class Message(val stringRes: Int) : ReminderListEntry { override val key = "message-$stringRes" }
+    data object MaintenanceSummary : ReminderListEntry { override val key = "maintenance-summary" }
+    data object MaintenanceHeading : ReminderListEntry { override val key = "maintenance-heading" }
+    data class Maintenance(val row: MaintenanceReminderRow) : ReminderListEntry {
+        override val key = "maintenance-${row.reminder.vehicleId}-${row.reminder.serviceTypeId}"
+    }
+    data class Reminder(val row: ReminderRow) : ReminderListEntry {
+        override val key = "reminder-${row.reminder.id}"
+    }
+}
+
 @Composable
 private fun ReminderContent(
     state: RemindersUiState,
@@ -171,13 +198,35 @@ private fun ReminderContent(
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         onEvent(ReminderEvent.SetNotificationsEnabled(granted))
     }
+    val entries = buildList<ReminderListEntry> {
+        add(ReminderListEntry.NotificationSettings)
+        when {
+            state.isLoading -> add(ReminderListEntry.Message(R.string.reminders_loading))
+            state.loadFailed -> add(ReminderListEntry.Message(R.string.reminders_load_error))
+            state.vehicles.isEmpty() -> add(ReminderListEntry.Message(R.string.reminders_no_vehicles))
+            state.rows.isEmpty() && state.maintenanceRows.isEmpty() -> add(ReminderListEntry.Message(R.string.reminders_empty))
+            else -> {
+                add(ReminderListEntry.VehicleSelector)
+                if (state.actionFailed) add(ReminderListEntry.Message(R.string.reminders_action_error))
+                if (state.maintenanceRows.isNotEmpty()) {
+                    add(ReminderListEntry.MaintenanceSummary)
+                    add(ReminderListEntry.MaintenanceHeading)
+                    state.maintenanceRows.forEach { add(ReminderListEntry.Maintenance(it)) }
+                }
+                state.rows.forEach { add(ReminderListEntry.Reminder(it)) }
+            }
+        }
+    }
     val listState = rememberLazyListState()
-    LaunchedEffect(highlightedReminderId, state.rows) {
-        val targetIndex = state.rows.indexOfFirst { it.reminder.id == highlightedReminderId }
-        if (targetIndex >= 0) listState.scrollToItem(targetIndex + 1)
+    LaunchedEffect(highlightedReminderId, entries) {
+        val reminderId = highlightedReminderId ?: return@LaunchedEffect
+        val targetIndex = entries.indexOfFirst { entry ->
+            entry is ReminderListEntry.Reminder && entry.row.reminder.id == reminderId
+        }
+        if (targetIndex >= 0) listState.scrollToItem(targetIndex)
     }
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().testTag("reminders-scroll-list"),
         state = listState,
         contentPadding = PaddingValues(
             start = 16.dp,
@@ -187,36 +236,30 @@ private fun ReminderContent(
         ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item {
-            NotificationSettingsCard(
-                enabled = state.notificationsEnabled,
-                onEnabledChange = { enabled ->
-                    when {
-                        !enabled -> onEvent(ReminderEvent.SetNotificationsEnabled(false))
-                        notificationsAllowed -> onEvent(ReminderEvent.SetNotificationsEnabled(true))
-                        else -> permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    }
-                },
-            )
-        }
-        when {
-            state.isLoading -> item { ReminderMessage(R.string.reminders_loading) }
-            state.loadFailed -> item { ReminderMessage(R.string.reminders_load_error) }
-            state.vehicles.isEmpty() -> item { ReminderMessage(R.string.reminders_no_vehicles) }
-            state.rows.isEmpty() && state.maintenanceRows.isEmpty() -> item { ReminderMessage(R.string.reminders_empty) }
-            else -> {
-                item { ReminderVehicleSelector(state, onEvent) }
-                if (state.actionFailed) item { ReminderMessage(R.string.reminders_action_error) }
-                if (state.maintenanceRows.isNotEmpty()) {
-                    item { MaintenanceReminderSummary(state.maintenanceRows) }
-                    item { Text(stringResource(R.string.maintenance_reminders_heading), style = MaterialTheme.typography.titleMedium) }
-                    items(state.maintenanceRows, key = { "maintenance-${it.reminder.vehicleId}-${it.reminder.serviceTypeId}" }) { row ->
-                        MaintenanceReminderCard(row, onClick = { onSelectMaintenance(row) })
-                    }
-                }
-                items(state.rows, key = { it.reminder.id }) { row ->
-                    ReminderCard(row, onEvent, onRequestCustomSnooze)
-                }
+        items(entries, key = ReminderListEntry::key) { entry ->
+            when (entry) {
+                ReminderListEntry.NotificationSettings -> NotificationSettingsCard(
+                    enabled = state.notificationsEnabled,
+                    onEnabledChange = { enabled ->
+                        when {
+                            !enabled -> onEvent(ReminderEvent.SetNotificationsEnabled(false))
+                            notificationsAllowed -> onEvent(ReminderEvent.SetNotificationsEnabled(true))
+                            else -> permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    },
+                )
+                ReminderListEntry.VehicleSelector -> ReminderVehicleSelector(state, onEvent)
+                is ReminderListEntry.Message -> ReminderMessage(entry.stringRes)
+                ReminderListEntry.MaintenanceSummary -> MaintenanceReminderSummary(state.maintenanceRows)
+                ReminderListEntry.MaintenanceHeading -> Text(
+                    stringResource(R.string.maintenance_reminders_heading),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                is ReminderListEntry.Maintenance -> MaintenanceReminderCard(entry.row, onClick = { onSelectMaintenance(entry.row) })
+                is ReminderListEntry.Reminder -> ReminderCard(
+                    entry.row, onEvent, onRequestCustomSnooze,
+                    highlighted = entry.row.reminder.id == highlightedReminderId,
+                )
             }
         }
     }
@@ -406,13 +449,16 @@ private fun ReminderCard(
     row: ReminderRow,
     onEvent: (ReminderEvent) -> Unit,
     onRequestCustomSnooze: (Long) -> Unit,
+    highlighted: Boolean,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     val reminder = row.reminder
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("reminder-${reminder.id}"),
+            .testTag("reminder-${reminder.id}")
+            .semantics { selected = highlighted },
+        border = if (highlighted) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
     ) {
         ListItem(

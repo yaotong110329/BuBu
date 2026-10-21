@@ -31,9 +31,12 @@ fun RestorePreviewDialog(
                     text = stringResource(R.string.restore_preview_overwrite_warning),
                     color = MaterialTheme.colorScheme.error,
                 )
-                if (state.error == RestoreError.RESTORE_FAILED) {
+                if (state.error == RestoreError.RESTORE_FAILED || state.error == RestoreError.BACKUP_TOO_LARGE) {
                     Text(
-                        text = stringResource(R.string.restore_error_failed),
+                        text = stringResource(
+                            if (state.error == RestoreError.BACKUP_TOO_LARGE) R.string.restore_error_backup_too_large
+                            else R.string.restore_error_failed,
+                        ),
                         color = MaterialTheme.colorScheme.error,
                     )
                 }

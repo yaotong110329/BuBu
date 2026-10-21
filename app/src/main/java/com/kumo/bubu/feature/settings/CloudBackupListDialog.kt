@@ -44,7 +44,7 @@ fun CloudBackupListDialog(
                         if (index > 0) HorizontalDivider()
                         CloudBackupRow(
                             backup = backup,
-                            enabled = !state.isDownloading && !state.isDeleting,
+                            enabled = !state.isAuthorizing && !state.isDownloading && !state.isDeleting,
                             onDownload = onDownload,
                             onDelete = onDelete,
                         )
@@ -55,7 +55,7 @@ fun CloudBackupListDialog(
         confirmButton = {
             TextButton(
                 onClick = onRefresh,
-                enabled = !state.isLoadingBackups && !state.isDownloading && !state.isDeleting,
+                enabled = !state.isAuthorizing && !state.isLoadingBackups && !state.isDownloading && !state.isDeleting,
             ) {
                 Text(stringResource(R.string.cloud_backup_list_refresh))
             }

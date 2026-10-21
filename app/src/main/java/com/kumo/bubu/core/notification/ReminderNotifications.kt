@@ -1,12 +1,20 @@
 package com.kumo.bubu.core.notification
 
+import android.Manifest
 import android.app.NotificationManager
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 
 object ReminderNotifications {
     const val CHANNEL_ID = "vehicle_reminders"
     const val MAINTENANCE_NOTIFICATION_ID = 70_006
+
+    fun canPost(context: Context): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
     fun cancel(context: Context, reminderId: Long) {
         NotificationManagerCompat.from(context).cancel(notificationId(reminderId))

@@ -35,17 +35,22 @@ data class FuelFormUiState(
     val priceEffectiveDateEpochDay: Long? = null,
     val calculationSources: List<FuelCalculationField> = emptyList(),
     val calculatedField: FuelCalculationField? = null,
+    val calculationOverflowField: FuelFormField? = null,
     val errors: Map<FuelFormField, FuelFormError> = emptyMap(),
     val isLoading: Boolean = true,
     val isSaving: Boolean = false,
     val saveFailed: Boolean = false,
+    val loadFailed: Boolean = false,
+    val isDraftSaving: Boolean = false,
+    val draftSaveFailed: Boolean = false,
+    val draftRestoreFailed: Boolean = false,
     val odometerOrderWarning: FuelOdometerNeighbors? = null,
     val odometerOrderReason: String = "",
     val odometerOrderReasonRequired: Boolean = false,
     val pendingSaveInput: FuelRecordInput? = null,
     val fuelEconomyOutlier: FuelEconomyOutlier? = null,
 ) {
-    val canSave: Boolean get() = activeVehicles.isNotEmpty() && !isLoading && !isSaving
+    val canSave: Boolean get() = activeVehicles.isNotEmpty() && !isLoading && !isSaving && !loadFailed
     val isEditing: Boolean get() = fuelRecordId != null
     val hasHighVolumeWarning: Boolean get() =
         volumeLiters.trim().toMillilitersOrNull()?.let { it > HIGH_VOLUME_WARNING_ML } == true
@@ -90,6 +95,7 @@ enum class FuelFormError {
     POSITIVE_VOLUME_REQUIRED,
     INVALID_TOTAL_COST,
     INVALID_PRICE,
+    CALCULATION_OVERFLOW,
 }
 
 sealed interface FuelFormEvent {
@@ -149,6 +155,7 @@ fun FuelFormUiState.validate(today: LocalDate = LocalDate.now()): FuelFormValida
         if (pricePerLiter.isNotBlank() && (parsedPrice == null || parsedPrice < 0)) {
             put(FuelFormField.PRICE, FuelFormError.INVALID_PRICE)
         }
+        calculationOverflowField?.let { put(it, FuelFormError.CALCULATION_OVERFLOW) }
     }
     if (errors.isNotEmpty()) return FuelFormValidation(null, errors)
 
@@ -192,16 +199,18 @@ fun FuelFormUiState.withUserValue(field: FuelCalculationField, value: String): F
         FuelCalculationField.VOLUME -> copy(volumeLiters = value)
         FuelCalculationField.PRICE -> copy(pricePerLiter = value)
         FuelCalculationField.TOTAL_COST -> copy(totalCostTwd = value)
-    }.copy(calculationSources = sources, calculatedField = null)
+    }.copy(calculationSources = sources, calculatedField = null, calculationOverflowField = null)
     return changed.withCalculatedValue()
 }
 
 fun FuelFormUiState.withUserCalculationValue(field: FuelCalculationField, value: String): FuelFormUiState {
     val updated = withUserValue(field, value)
-    return if (updated.calculatedField == FuelCalculationField.PRICE) {
-        updated.copy(priceSource = FuelPriceSource.CALCULATED, priceEffectiveDateEpochDay = null)
-    } else {
-        updated
+    return when {
+        updated.calculatedField == FuelCalculationField.PRICE ->
+            updated.copy(priceSource = FuelPriceSource.CALCULATED, priceEffectiveDateEpochDay = null)
+        updated.calculationOverflowField == FuelFormField.PRICE ->
+            updated.copy(priceSource = FuelPriceSource.NONE, priceEffectiveDateEpochDay = null)
+        else -> updated
     }
 }
 
@@ -212,22 +221,34 @@ private fun FuelFormUiState.withCalculatedValue(): FuelFormUiState {
     val total = totalCostTwd.trim().toLongOrNull()
     return when (calculationSources.toSet()) {
         setOf(FuelCalculationField.VOLUME, FuelCalculationField.PRICE) -> {
-            if (volume == null || price == null) this else copy(
-                totalCostTwd = calculateFuelTotalCost(volume, price).toString(),
-                calculatedField = FuelCalculationField.TOTAL_COST,
-            )
+            if (volume == null || price == null) this else {
+                val calculatedTotal = try {
+                    calculateFuelTotalCost(volume, price)
+                } catch (_: ArithmeticException) {
+                    return copy(totalCostTwd = "", calculationOverflowField = FuelFormField.TOTAL_COST)
+                }
+                copy(totalCostTwd = calculatedTotal.toString(), calculatedField = FuelCalculationField.TOTAL_COST)
+            }
         }
         setOf(FuelCalculationField.VOLUME, FuelCalculationField.TOTAL_COST) -> {
-            if (volume == null || total == null) this else copy(
-                pricePerLiter = calculateFuelPricePerLiter(volume, total)?.toScaledDecimalText(3).orEmpty(),
-                calculatedField = FuelCalculationField.PRICE,
-            )
+            if (volume == null || total == null) this else {
+                val calculatedPrice = try {
+                    calculateFuelPricePerLiter(volume, total)
+                } catch (_: ArithmeticException) {
+                    return copy(pricePerLiter = "", calculationOverflowField = FuelFormField.PRICE)
+                }
+                copy(pricePerLiter = calculatedPrice?.toScaledDecimalText(3).orEmpty(), calculatedField = FuelCalculationField.PRICE)
+            }
         }
         setOf(FuelCalculationField.PRICE, FuelCalculationField.TOTAL_COST) -> {
-            if (price == null || total == null) this else copy(
-                volumeLiters = calculateFuelVolumeMl(price, total)?.toScaledDecimalText(3).orEmpty(),
-                calculatedField = FuelCalculationField.VOLUME,
-            )
+            if (price == null || total == null) this else {
+                val calculatedVolume = try {
+                    calculateFuelVolumeMl(price, total)
+                } catch (_: ArithmeticException) {
+                    return copy(volumeLiters = "", calculationOverflowField = FuelFormField.VOLUME)
+                }
+                copy(volumeLiters = calculatedVolume?.toScaledDecimalText(3).orEmpty(), calculatedField = FuelCalculationField.VOLUME)
+            }
         }
         else -> this
     }

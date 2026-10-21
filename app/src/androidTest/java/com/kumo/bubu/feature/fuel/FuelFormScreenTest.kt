@@ -5,10 +5,12 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performClick
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -78,5 +80,19 @@ class FuelFormScreenTest {
             .performClick()
 
         assertEquals(1, clickCount)
+    }
+
+    @Test
+    fun calculationOverflowIsVisibleOnTheDerivedFieldBeforeSave() {
+        val state = FuelFormUiState(isLoading = false)
+            .withUserValue(FuelCalculationField.VOLUME, "0.001")
+            .withUserValue(FuelCalculationField.TOTAL_COST, Long.MAX_VALUE.toString())
+        composeRule.setContent {
+            BuBuTheme { FuelFormScreen(state = state, onEvent = {}, onBack = {}) }
+        }
+
+        composeRule.onNode(hasScrollAction())
+            .performScrollToNode(hasText("數值過大，無法計算此欄位，請調整輸入。"))
+        composeRule.onNodeWithText("數值過大，無法計算此欄位，請調整輸入。").assertIsDisplayed()
     }
 }

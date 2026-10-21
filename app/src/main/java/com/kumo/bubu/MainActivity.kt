@@ -13,14 +13,25 @@ import com.kumo.bubu.navigation.BuBuNavHost
 
 class MainActivity : ComponentActivity() {
     private var notificationReminderId by mutableStateOf<Long?>(null)
+    private var notificationOpenReminders by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         notificationReminderId = intent.reminderId()
+        notificationOpenReminders = intent.getBooleanExtra(EXTRA_OPEN_REMINDERS, false)
         enableEdgeToEdge()
         setContent {
             BuBuTheme {
-                BuBuNavHost(initialReminderId = notificationReminderId)
+                BuBuNavHost(
+                    initialReminderId = notificationReminderId,
+                    initialOpenReminders = notificationOpenReminders,
+                    onNotificationHandled = {
+                        notificationReminderId = null
+                        notificationOpenReminders = false
+                        intent.removeExtra(EXTRA_REMINDER_ID)
+                        intent.removeExtra(EXTRA_OPEN_REMINDERS)
+                    },
+                )
             }
         }
     }
@@ -29,6 +40,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         notificationReminderId = intent.reminderId()
+        notificationOpenReminders = intent.getBooleanExtra(EXTRA_OPEN_REMINDERS, false)
     }
 
     private fun Intent.reminderId(): Long? =
@@ -36,5 +48,6 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_REMINDER_ID = "com.kumo.bubu.extra.REMINDER_ID"
+        const val EXTRA_OPEN_REMINDERS = "com.kumo.bubu.extra.OPEN_REMINDERS"
     }
 }

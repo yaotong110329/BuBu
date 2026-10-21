@@ -8,3 +8,5 @@ data class BackupResult(
 interface BackupRepository {
     suspend fun createBackup(destinationUriString: String): BackupResult
 }
+
+class BackupTooLargeException : IllegalArgumentException("Backup is too large to restore safely.")

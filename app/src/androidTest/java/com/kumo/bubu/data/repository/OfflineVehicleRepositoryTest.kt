@@ -55,6 +55,16 @@ class OfflineVehicleRepositoryTest {
     }
 
     @Test
+    fun retryingCommittedCreationKeepsOneVehicleAndItsOriginalValues() = runBlocking {
+        val creationId = UUID.randomUUID().toString()
+        val originalId = repository.createVehicle(input("原始車輛"), creationId)
+        val retryId = repository.createVehicle(input("過期草稿"), creationId)
+        assertEquals(originalId, retryId)
+        assertEquals(originalId, repository.findVehicleIdByPublicId(creationId))
+        assertEquals(listOf("原始車輛"), repository.observeVehicles().first().map { it.name })
+    }
+
+    @Test
     fun selectionPersistsAndInvalidCurrentFallsBackAcrossVehicleActions() = runBlocking {
         val firstId = repository.createVehicle(input("第一台"))
         val firstGarage = repository.observeGarage().first()

@@ -171,6 +171,7 @@
     <string name="fuel_volume_error">請輸入大於 0 且不超過 999.999 的公升數。</string>
     <string name="fuel_total_cost_error">請輸入 0 以上的整數新臺幣金額。</string>
     <string name="fuel_price_error">請輸入 0 以上、最多三位小數的單價。</string>
+    <string name="fuel_calculation_overflow_error">數值過大，無法計算此欄位，請調整輸入。</string>
     <string name="fuel_high_volume_warning">加油量超過 200 L，請再次確認輸入值。</string>
     <string name="fuel_calculated_value">系統依另外兩個輸入值計算</string>
     <string name="fuel_price_loading">正在取得中油人工價…</string>
@@ -587,6 +588,7 @@
     <string name="settings_backup_in_progress">正在建立完整備份…</string>
     <string name="settings_backup_success">已建立備份：%1$s</string>
     <string name="settings_backup_error">備份失敗，請確認儲存位置後再試一次。</string>
+    <string name="settings_backup_too_large">備份超過目前可還原的大小上限，無法建立。</string>
     <string name="settings_monthly_backup_reminder">每月備份提醒</string>
     <string name="settings_monthly_backup_reminder_enabled">每月提醒建立完整備份</string>
     <string name="settings_monthly_backup_reminder_disabled">目前已關閉</string>
@@ -613,6 +615,7 @@
     <string name="restore_confirm_overwrite">確認完整覆蓋</string>
     <string name="restore_cancel">取消</string>
     <string name="restore_error_failed">還原失敗，已嘗試自動回復原有資料。</string>
+    <string name="restore_error_backup_too_large">目前資料超過復原備份的可還原上限，還原未執行。</string>
     <string name="settings_recovery_backup">最新復原備份</string>
     <string name="settings_recovery_backup_summary">%1$s；點選匯出到你選擇的位置。</string>
     <string name="settings_recovery_backup_error">復原備份操作失敗，請再試一次。</string>
@@ -668,12 +671,14 @@
     <string name="settings_google_drive_error_not_connected">尚未連結 Google Drive。</string>
     <string name="settings_google_drive_error_offline">目前沒有網路連線。</string>
     <string name="settings_google_drive_error_authorization_expired">Google Drive 授權已失效，請重新連結。</string>
+    <string name="settings_google_drive_error_retention">備份已上傳，但舊備份清理未完成，可能暫時超過五份。請稍後再試。</string>
     <string name="settings_google_drive_error_upload">Google Drive 上傳失敗，請確認網路後再試一次。</string>
     <string name="settings_google_drive_error_download">Google Drive 下載失敗，尚未進入還原。</string>
     <string name="settings_google_drive_error_delete">Google Drive 備份刪除失敗，請確認網路後再試一次。</string>
     <string name="settings_google_drive_error_invalid_backup">下載的備份未通過驗證，無法還原。</string>
     <string name="settings_google_drive_error_unsupported_format">此備份格式版本不受目前 BuBu 支援。</string>
     <string name="settings_google_drive_error_configuration">Google Drive 尚未完成此裝置的開發設定。</string>
+    <string name="settings_google_drive_error_account_mismatch">請選擇目前連結的 Google 帳號；如需切換，請先解除連結。</string>
     <string name="settings_google_drive_error_unknown">Google Drive 操作失敗，請再試一次。</string>
     <string name="cloud_backup_list_title">Google Drive 備份</string>
     <string name="cloud_backup_list_empty">目前沒有 Google Drive 備份。</string>
@@ -683,4 +688,7 @@
     <string name="cloud_backup_delete_title">刪除雲端備份？</string>
     <string name="cloud_backup_delete_message">「%1$s」會從 Google Drive 永久刪除，無法復原。</string>
     <string name="cloud_backup_list_summary">BuBu %1$s · %2$d 台車 · %3$d 筆加油 · %4$d 筆保養\n%5$s</string>
+    <string name="form_draft_saving">正在保存草稿…</string>
+    <string name="form_draft_save_error">草稿尚未安全保存，請儲存紀錄或稍後重試。</string>
+    <string name="form_draft_restore_error">無法恢復這份草稿。請返回後重新開啟表單；已儲存的紀錄不受影響。</string>
 </resources>

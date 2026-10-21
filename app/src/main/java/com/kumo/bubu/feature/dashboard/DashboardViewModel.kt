@@ -1,6 +1,10 @@
 package com.kumo.bubu.feature.dashboard
 
 import androidx.lifecycle.ViewModel
+import com.kumo.bubu.core.state.LocalDateState
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -40,12 +44,15 @@ data class DashboardUiState(
     val loadFailed: Boolean = false,
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class DashboardViewModel(
     vehicleRepository: VehicleRepository,
     fuelRepository: FuelRepository,
     reminderRepository: ReminderRepository,
     serviceRepository: ServiceRepository,
+    todayProvider: () -> java.time.LocalDate = java.time.LocalDate::now,
 ) : ViewModel() {
+    private val dateState = LocalDateState(viewModelScope, todayProvider)
     val uiState = combine(
         vehicleRepository.observeVehicles(),
         fuelRepository.observeRecentFuelRecords(),
@@ -54,10 +61,12 @@ class DashboardViewModel(
         serviceRepository.observeAllServiceReminderPreferences(),
     ) { vehicles, fuelRecords, reminders, serviceTypes, preferences ->
         DashboardInputs(vehicles, fuelRecords, reminders, serviceTypes, preferences)
-    }.let { inputs -> combine(inputs, serviceRepository.observeMaintenanceReminders(java.time.LocalDate.now())) { input, maintenanceReminders ->
+    }.let { inputs -> combine(inputs, dateState.dates.flatMapLatest { today ->
+        serviceRepository.observeMaintenanceReminders(today).map { today to it }
+    }) { input, (today, maintenanceReminders) ->
         val (vehicles, fuelRecords, reminders, serviceTypes, preferences) = input
         val activeVehicles = vehicles.filterNot { it.isArchived }
-        val todayEpochDay = java.time.LocalDate.now().toEpochDay()
+        val todayEpochDay = today.toEpochDay()
         DashboardUiState(
             vehicles = activeVehicles
                 .map { vehicle ->
@@ -117,6 +126,10 @@ class DashboardViewModel(
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = DashboardUiState(),
     )
+
+    fun onForeground() = dateState.onForeground()
+
+    fun onBackground() = dateState.onBackground()
 
     init {
         viewModelScope.launch { serviceRepository.ensureDefaultServiceTypes() }

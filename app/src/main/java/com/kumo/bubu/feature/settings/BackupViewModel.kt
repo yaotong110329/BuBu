@@ -6,6 +6,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.lifecycle.viewModelScope
 import com.kumo.bubu.domain.repository.BackupRepository
+import com.kumo.bubu.domain.repository.BackupTooLargeException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -14,6 +15,7 @@ data class BackupUiState(
     val isCreating: Boolean = false,
     val createdFileName: String? = null,
     val hasError: Boolean = false,
+    val isTooLarge: Boolean = false,
 )
 
 class BackupViewModel(
@@ -32,7 +34,9 @@ class BackupViewModel(
             mutableUiState.value = BackupUiState(isCreating = true)
             runCatching { backupRepository.createBackup(destinationUriString) }
                 .onSuccess { result -> mutableUiState.value = BackupUiState(createdFileName = result.fileName) }
-                .onFailure { mutableUiState.value = BackupUiState(hasError = true) }
+                .onFailure { error ->
+                    mutableUiState.value = BackupUiState(hasError = true, isTooLarge = error is BackupTooLargeException)
+                }
         }
     }
 

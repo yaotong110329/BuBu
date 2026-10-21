@@ -184,6 +184,7 @@ fun SettingsScreen(
                             R.string.settings_backup_success,
                             backupUiState.createdFileName,
                         )
+                        backupUiState.isTooLarge -> stringResource(R.string.settings_backup_too_large)
                         backupUiState.hasError -> stringResource(R.string.settings_backup_error)
                         else -> stringResource(R.string.settings_backup_summary)
                     },
@@ -199,6 +200,7 @@ fun SettingsScreen(
                         restoreUiState.isLoadingPreview -> stringResource(R.string.settings_restore_previewing)
                         restoreUiState.isRestoring -> stringResource(R.string.settings_restore_in_progress)
                         restoreUiState.completed -> stringResource(R.string.settings_restore_success)
+                        restoreUiState.error == RestoreError.BACKUP_TOO_LARGE -> stringResource(R.string.restore_error_backup_too_large)
                         restoreUiState.error != null -> stringResource(R.string.settings_restore_error)
                         else -> stringResource(R.string.settings_restore_summary)
                     },
@@ -257,7 +259,7 @@ private fun GoogleDriveBackupSettings(
         leadingContent = { Icon(Icons.Filled.Download, contentDescription = null) },
         trailingContent = {
             if (connected == null) {
-                TextButton(onClick = onConnect, modifier = Modifier.testTag("settings-google-drive-connect")) {
+                TextButton(onClick = onConnect, enabled = !state.isAuthorizing, modifier = Modifier.testTag("settings-google-drive-connect")) {
                     Text(stringResource(R.string.settings_google_drive_connect))
                 }
             }
@@ -280,7 +282,7 @@ private fun GoogleDriveBackupSettings(
                 else -> stringResource(R.string.settings_google_drive_backup_summary)
             },
             icon = { Icon(Icons.Filled.Download, contentDescription = null) },
-            enabled = !state.isUploading && !state.isLoadingBackups && !state.isDownloading,
+            enabled = !state.isAuthorizing && !state.isUploading && !state.isLoadingBackups && !state.isDownloading && !state.isDeleting,
             onClick = onCreateBackup,
             modifier = Modifier.testTag("settings-google-drive-backup"),
         )
@@ -293,7 +295,7 @@ private fun GoogleDriveBackupSettings(
                 stringResource(R.string.settings_google_drive_restore_summary)
             },
             icon = { Icon(Icons.Filled.Download, contentDescription = null) },
-            enabled = !state.isUploading && !state.isDownloading,
+            enabled = !state.isAuthorizing && !state.isUploading && !state.isLoadingBackups && !state.isDownloading && !state.isDeleting,
             onClick = onRestore,
             modifier = Modifier.testTag("settings-google-drive-restore"),
         )
@@ -302,7 +304,7 @@ private fun GoogleDriveBackupSettings(
             title = stringResource(R.string.settings_google_drive_disconnect),
             summary = stringResource(R.string.settings_google_drive_disconnect_summary),
             icon = { Icon(Icons.Filled.Download, contentDescription = null) },
-            enabled = !state.isUploading && !state.isLoadingBackups && !state.isDownloading,
+            enabled = !state.isAuthorizing && !state.isUploading && !state.isLoadingBackups && !state.isDownloading && !state.isDeleting,
             onClick = onDisconnect,
             modifier = Modifier.testTag("settings-google-drive-disconnect"),
         )
@@ -324,8 +326,10 @@ private fun Long.toCloudBackupDateTimeText(): String = Instant.ofEpochMilli(this
 private fun CloudBackupError.toCloudBackupMessage(): String = stringResource(
     when (this) {
         CloudBackupError.NotConnected -> R.string.settings_google_drive_error_not_connected
+        CloudBackupError.AccountMismatch -> R.string.settings_google_drive_error_account_mismatch
         CloudBackupError.NetworkUnavailable -> R.string.settings_google_drive_error_offline
         CloudBackupError.AuthorizationExpired -> R.string.settings_google_drive_error_authorization_expired
+        CloudBackupError.RetentionIncomplete -> R.string.settings_google_drive_error_retention
         CloudBackupError.UploadFailed -> R.string.settings_google_drive_error_upload
         CloudBackupError.DownloadFailed -> R.string.settings_google_drive_error_download
         CloudBackupError.DeleteFailed -> R.string.settings_google_drive_error_delete

@@ -7,6 +7,76 @@ import org.junit.Test
 
 class FuelEconomyTest {
     @Test
+    fun outlierUsesRecentEightSegmentsInsteadOfTheEightHighestEconomies() {
+        val history = (0..16).map { index ->
+            val distance = if (index <= 8) index * 300L else 2_400L + (index - 8) * 100L
+            record(index + 1L, index + 1L, distance, 10_000, true)
+        }
+
+        assertNull(detectFuelEconomyOutlier(history, record(18, 18, 3_300, 10_000, true)))
+    }
+
+    @Test
+    fun recentWindowUsesStableSameDayTimeSequenceAndIdOrdering() {
+        val history = (0..16).map { index ->
+            val distance = if (index <= 8) index * 300L else 2_400L + (index - 8) * 100L
+            record(index + 1L, 1, distance, 10_000, true)
+        }
+        val byTime = history.mapIndexed { index, fuel ->
+            fuel.copy(timeMinuteOfDay = if (index <= 8) index * 10 else null, sequenceInDay = index)
+        }
+        val bySequence = history.mapIndexed { index, fuel ->
+            fuel.copy(id = 100L - index, timeMinuteOfDay = 0, sequenceInDay = index)
+        }
+        val byId = history.map { it.copy(timeMinuteOfDay = 0) }
+
+        listOf(byTime, bySequence, byId).forEachIndexed { index, ordered ->
+            val candidate = record(1_000, 1, 3_500, 10_000, true).copy(
+                timeMinuteOfDay = if (index == 0) null else 0,
+                sequenceInDay = Int.MAX_VALUE,
+            )
+            assertEquals(FuelEconomyOutlier(30_000, 10_000), detectFuelEconomyOutlier(ordered.reversed(), candidate))
+        }
+    }
+
+    @Test
+    fun shortHistoryNeedsFourPriorSegmentsWithoutCountingTheCandidate() {
+        val history = (0..4).map { index -> record(index + 1L, index + 1L, index * 100L, 10_000, true) }
+
+        assertNull(detectFuelEconomyOutlier(history.take(4), record(9, 9, 700, 10_000, true)))
+        assertEquals(FuelEconomyOutlier(40_000, 10_000),
+            detectFuelEconomyOutlier(history, record(9, 9, 800, 10_000, true)))
+    }
+
+    @Test
+    fun excludedRecentSegmentsLeaveTheValidBaselineAndNextFullTankAnchorIntact() {
+        val history = (0..12).map { index ->
+            val excluded = index > 4
+            val distance = if (excluded) 400L + (index - 4) * 300L else index * 100L
+            record(index + 1L, index + 1L, distance, 10_000, true,
+                if (excluded) FuelEconomyStatisticsStatus.EXCLUDED else FuelEconomyStatisticsStatus.INCLUDED)
+        }
+        val candidate = record(14, 14, 2_900, 10_000, true)
+
+        assertNull(detectFuelEconomyOutlier(history, candidate))
+        assertEquals(10_000L, calculateFuelEconomyMilliKmPerLiterByRecord(history + candidate)[candidate.id])
+        assertEquals(emptyList<FuelEconomyOutlierCandidate>(), detectFuelEconomyOutlierCandidates(history + candidate))
+    }
+
+    @Test
+    fun reviewCandidatesKeepTwoVehiclesWithDifferentEconomiesIsolated() {
+        val firstVehicle = (0..5).map { index ->
+            record(index + 1L, index + 1L, if (index == 5) 700 else index * 100L, 10_000, true)
+        }
+        val secondVehicle = (0..8).map { index ->
+            record(index + 100L, index + 1L, index * 300L, 10_000, true).copy(vehicleId = 2)
+        }
+
+        assertEquals(listOf(FuelEconomyOutlierCandidate(6, FuelEconomyOutlier(30_000, 10_000))),
+            detectFuelEconomyOutlierCandidates((firstVehicle + secondVehicle).reversed()))
+    }
+
+    @Test
     fun recentAverageUsesTheLastThreeValidFullTankCycles() {
         val average = calculateRecentAverageFuelEconomyMilliKmPerLiter(
             listOf(

@@ -1,10 +1,10 @@
 # BuBu 車庫
 
-BuBu 是供臺灣自用燃油汽車與機車使用的離線優先 Android App。正式版本為 **v1.1.1**；Phase 0–7 的功能、Google Drive 雲端備份與 Release Readiness 品質閘門已完成。Google Drive 的剩餘實機驗收情境會持續於 `TASKS.md` 追蹤。
+BuBu 是供臺灣自用燃油汽車與機車使用的離線優先 Android App。目前正式版本為 **v1.1.2**，包含 Release 1.1.1 後的 16 項檢測與強化，已建置正式簽章 APK 並完成原手機覆蓋更新。實際能力、規格缺口與待決範圍見[能力盤點](docs/audit/RELEASE_1_1_1_CAPABILITY_INVENTORY.md)，歷史驗證與目前任務見 [TASKS.md](TASKS.md)。CB-12 Google Drive 真實帳號完整驗收依使用者於 2026-10-21 的指示跳過，未宣稱已通過。
 
-最新版 APK 可由 [GitHub Releases](https://github.com/yaotong110329/BuBu/releases/tag/v1.1.1) 下載。
+最新版 APK 可由 [GitHub Releases](https://github.com/yaotong110329/BuBu/releases/tag/v1.1.2) 下載，亦提供 SHA-256 校驗檔。
 
-## 已完成功能
+## 目前功能
 
 - 新增多台自用汽車或機車，並保存於本機 Room 資料庫
 - 編輯名稱、車種、機車級別、廠牌、型號、年份、排氣量、車牌、液體燃料動力類型、追蹤起始資料與備註
@@ -16,7 +16,7 @@ BuBu 是供臺灣自用燃油汽車與機車使用的離線優先 Android App。
 - 管理汽車／機車分開的內建與自訂常用服務類型；項目選擇先顯示快速項目，再展開更多項目
 - 工單支援多張 App 私有 JPEG、PNG 與 WebP 附件，可預覽、刪除並在檔案失敗時補償清理
 - 服務項目的下次里程／日期提醒關聯與完成鏈會隨工單交易一致更新
-- 新增、編輯與刪除其他支出紀錄
+- 已有其他支出資料層、清單／表單與 routes；一般導覽入口尚缺，完整操作範圍見能力盤點
 - 依追蹤起始值、加油與服務紀錄的最大里程重建目前里程；補登舊紀錄不會降低目前里程
 - 單車統一時間軸支援 Fuel／Service 混合排序、類型、關鍵字與本地日期範圍篩選，並可直接編輯來源紀錄
 - 報表支援車輛／日期範圍摘要、月支出、油耗、每公里成本、服務花費、支出類別與累積里程趨勢
@@ -29,8 +29,17 @@ BuBu 是供臺灣自用燃油汽車與機車使用的離線優先 Android App。
 - 可選擇連結自己的 Google 帳號，將既有格式的完整 `.bubu` 備份上傳到 Google Drive `appDataFolder`
 - 可查看、重新整理、預覽還原與永久刪除自己的 Google Drive 備份；雲端備份不會變更手機資料，直到使用者在既有還原確認流程中確認
 - 可開關每月手動備份提醒；它只保存為 App 偏好，不會被備份或還原，也不會自動寫入檔案
-- Material 3 深色／淺色主題與首頁、報表、設定三個頂層導覽頁
+- Material 3 深色／淺色主題與首頁、提醒、報表、設定四個頂層導覽頁
 - 預設可完全離線使用；Google Drive 備份為選用功能，不建立 BuBu 帳號、不進行資料同步，且無廣告或追蹤 SDK
+
+## V1.1.2 更新內容
+
+- 強化備份大小與語意驗證、復原檔交付、取消及程序重啟時的附件／暫存檔保護。
+- 修正加油表單溢位，並改善旋轉、外部操作及程序重建後的表單草稿恢復。
+- 改善保養日期刷新、通知目標、摘要狀態及操作一致性。
+- 修正 Google 帳號一致性、Drive 分頁與備份保留流程。
+- 油耗異常比較基準採最近八個有效區段；補齊保養歷史還原及完成鏈整合驗證。
+- App versionCode 升為 4；資料庫仍為 15、完整備份格式仍為 1。
 
 ## V1.1.1 更新內容
 
@@ -51,7 +60,7 @@ BuBu 是供臺灣自用燃油汽車與機車使用的離線優先 Android App。
 
 | 元件 | 版本 |
 | --- | --- |
-| App | 1.1.1 (versionCode 3) |
+| App | 1.1.2 (versionCode 4) |
 | compileSdk / targetSdk / minSdk | 37 / 37 / 26 |
 | Android Gradle Plugin | 9.3.1 |
 | Gradle Wrapper | 9.6.1 |
@@ -74,7 +83,7 @@ AGP 9 使用內建 Kotlin，因此專案不套用 `org.jetbrains.kotlin.android`
 2. Android SDK Platform 37
 3. Android SDK Build-Tools 37.0.0
 4. Android SDK Platform-Tools
-5. 執行儀器測試時，需有 API 26 以上的 emulator 或實體裝置
+5. 執行儀器測試時，需有 API 26 以上、明確指定且可拋棄的 AVD；ADB 清單只能保留該模擬器
 
 以 Android Studio 開啟專案時，將 Gradle JDK 設為 **Embedded JDK**（目前為 JBR 25.0.2），並確保 `local.properties` 的 `sdk.dir` 指向本機 Android SDK。若從終端執行，請將 `JAVA_HOME` 指向 Android Studio 的 `jbr` 目錄，並將 `ANDROID_SDK_ROOT` 指向本機 Android SDK；設定後需重新開啟終端。`local.properties` 不納入版本控制。
 
@@ -87,8 +96,11 @@ Release 驗證時一次只可有一個 Gradle build 寫入本工作區。先執�
 .\gradlew.bat :app:assembleDebug
 .\gradlew.bat :app:testDebugUnitTest
 .\gradlew.bat :app:lintDebug
-.\gradlew.bat :app:connectedDebugAndroidTest
+$env:ANDROID_SERIAL = "emulator-5554"
+.\gradlew.bat :app:connectedDebugAndroidTest '-Pbubu.testEmulatorSerial=emulator-5554' '-Pbubu.testEmulatorAvd=BuBu_API_35'
 ```
+
+Connected tests 會安裝並卸載 App，只能使用明確指定的可拋棄 AVD。執行前讓 ADB 清單只保留該模擬器，並將上述 serial／AVD 名稱換成實際值；Gradle 會拒絕未指定裝置、名稱不符或同時連接其他裝置的執行。可先執行 `:app:verifyConnectedTestDevice` 搭配相同參數，只檢查裝置、不安裝 APK。
 
 安裝並啟動 Debug APK：
 
@@ -114,4 +126,4 @@ app/src/main/java/com/kumo/bubu/
 
 ## 範圍邊界
 
-目前資料庫包含車輛、加油、服務工單／項目／常用類型、其他支出、服務提醒關聯、法定提醒、里程預估與工單圖片附件。滿箱油耗、統一時間軸、報表、提醒中心、本機通知、CSV 報表 ZIP、完整 `.bubu` 備份與完全覆蓋還原已實作；資料不足情境的里程預估驗收依本輪範圍暫緩。
+目前資料庫包含車輛、加油、服務工單／項目／常用類型、其他支出、服務提醒關聯、法定提醒、里程預估與工單圖片附件。已實作滿箱油耗、單車 Fuel／Service 時間軸、報表、提醒中心、本機通知、CSV 報表 ZIP、完整 `.bubu` 備份與完全覆蓋還原。週期重啟與完整油耗資格、里程修正歷程／儀表更換、垃圾桶、封存車報表與完整歷史操作仍有規格缺口；資料不足情境的里程預估驗收也待確認。來源、部分能力與決策邊界見[能力盤點](docs/audit/RELEASE_1_1_1_CAPABILITY_INVENTORY.md)，未查得核准來源的項目不標成已延期。

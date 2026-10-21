@@ -26,8 +26,10 @@ sealed interface CloudBackupConnection {
 
 sealed interface CloudBackupError {
     data object NotConnected : CloudBackupError
+    data object AccountMismatch : CloudBackupError
     data object NetworkUnavailable : CloudBackupError
     data object AuthorizationExpired : CloudBackupError
+    data object RetentionIncomplete : CloudBackupError
     data object UploadFailed : CloudBackupError
     data object DownloadFailed : CloudBackupError
     data object DeleteFailed : CloudBackupError

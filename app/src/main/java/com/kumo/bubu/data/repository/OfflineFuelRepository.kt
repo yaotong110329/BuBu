@@ -89,23 +89,32 @@ class OfflineFuelRepository(
         dateEpochDay: Long,
     ): Long? = fuelRecordDao.getLastPriceForProduct(vehicleId, fuelProduct, dateEpochDay)
 
-    override suspend fun createFuelRecord(input: FuelRecordInput): Long {
+    override suspend fun findFuelRecordIdByPublicId(publicId: String): Long? =
+        fuelRecordDao.getByPublicId(publicId)?.id
+
+    override suspend fun createFuelRecord(input: FuelRecordInput, creationId: String?): Long {
+        creationId?.let { require(UUID.fromString(it).toString() == it) }
         val result = database.withTransaction {
+            creationId?.let { publicId ->
+                fuelRecordDao.getByPublicId(publicId)?.let { existing ->
+                    return@withTransaction Triple(existing.id, "", false)
+                }
+            }
             val vehicle = requireNotNull(vehicleDao.getById(input.vehicleId)) { "Vehicle does not exist." }
             require(!vehicle.isArchived) { "Archived vehicle cannot receive fuel records." }
             val validInput = input.validated()
             val now = System.currentTimeMillis()
             val id = fuelRecordDao.insert(
                 validInput.toNewEntity(
-                    publicId = UUID.randomUUID().toString(),
+                    publicId = creationId ?: UUID.randomUUID().toString(),
                     sequenceInDay = fuelRecordDao.nextSequenceInDay(validInput.vehicleId, validInput.dateEpochDay),
                     nowEpochMillis = now,
                 ),
             )
             rebuildVehicleCurrentOdometer(vehicle, now)
-            id to vehicle.publicId
+            Triple(id, vehicle.publicId, true)
         }
-        preferences.edit { values ->
+        if (result.third) preferences.edit { values ->
             values[fullTankKey(result.second)] = input.isFullTank
             input.fuelProduct?.let { values[lastFuelProductKey(result.second)] = it.name }
             values[lastFuelingModeKey(result.second)] = input.fuelingMode.name

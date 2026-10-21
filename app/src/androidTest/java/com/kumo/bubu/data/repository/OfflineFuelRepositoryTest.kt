@@ -57,6 +57,17 @@ class OfflineFuelRepositoryTest {
     }
 
     @Test
+    fun retryingCommittedCreationKeepsOneFuelRecordAndItsOriginalValues() = runBlocking {
+        val vehicleId = database.vehicleDao().insert(vehicle())
+        val creationId = UUID.randomUUID().toString()
+        val originalId = repository.createFuelRecord(input(vehicleId, date = 20_000, odometer = 1_500), creationId)
+        val retryId = repository.createFuelRecord(input(vehicleId, date = 19_000, odometer = 900), creationId)
+        assertEquals(originalId, retryId)
+        assertEquals(originalId, repository.findFuelRecordIdByPublicId(creationId))
+        assertEquals(listOf(1_500L), repository.observeRecentFuelRecords().first().map { it.odometerKm })
+    }
+
+    @Test
     fun newHigherOdometerUpdatesVehicleButOlderEntryDoesNotLowerIt() = runBlocking {
         val vehicleId = database.vehicleDao().insert(vehicle())
 

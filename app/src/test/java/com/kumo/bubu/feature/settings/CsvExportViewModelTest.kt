@@ -59,6 +59,47 @@ class CsvExportViewModelTest {
         assertSame(CsvExportError.INVALID_DATE_RANGE, viewModel.uiState.value.error)
     }
 
+    @Test
+    fun destinationUsesOriginalRequestOnceAndRejectsAnOldResultAfterRetry() = runTest {
+        val repository = FakeCsvExportRepository()
+        val viewModel = CsvExportViewModel(FakeVehicleRepository(listOf(vehicle(7))), repository)
+        backgroundScope.launch { viewModel.uiState.collect() }
+        advanceUntilIdle()
+        assertEquals(true, viewModel.prepareDestination())
+        val firstId = requireNotNull(viewModel.destinationRequestId.value)
+        assertEquals(true, viewModel.consumeDestinationLaunch(firstId))
+        assertEquals(false, viewModel.consumeDestinationLaunch(firstId))
+        viewModel.onDestinationResult(firstId, null)
+        assertNull(viewModel.destinationRequestId.value)
+        assertEquals(true, viewModel.prepareDestination())
+        val retryId = requireNotNull(viewModel.destinationRequestId.value)
+        viewModel.onEvent(CsvExportEvent.ChangeStartDate("2026-08-01"))
+        viewModel.onDestinationResult(firstId, "old-destination")
+        viewModel.onDestinationResult(retryId, "new-destination")
+        viewModel.onDestinationResult(retryId, "duplicate")
+        advanceUntilIdle()
+        assertEquals(listOf("new-destination"), repository.destinations)
+        assertEquals(listOf(CsvExportRequest(setOf(7), null, null)), repository.requests)
+    }
+
+    @Test
+    fun leavingInvalidatesAnUnconfirmedDestinationAndLaunchFailureAllowsRetry() = runTest {
+        val repository = FakeCsvExportRepository()
+        val viewModel = CsvExportViewModel(FakeVehicleRepository(listOf(vehicle(7))), repository)
+        backgroundScope.launch { viewModel.uiState.collect() }
+        advanceUntilIdle()
+        viewModel.prepareDestination()
+        val abandonedId = requireNotNull(viewModel.destinationRequestId.value)
+        viewModel.cancelDestination()
+        viewModel.onDestinationResult(abandonedId, "abandoned")
+        viewModel.prepareDestination()
+        viewModel.onDestinationLaunchFailed(requireNotNull(viewModel.destinationRequestId.value))
+        advanceUntilIdle()
+        assertSame(CsvExportError.WRITE_FAILED, viewModel.uiState.value.error)
+        assertEquals(true, viewModel.prepareDestination())
+        assertEquals(emptyList<String>(), repository.destinations)
+    }
+
     private fun vehicle(id: Long) = Vehicle(
         id = id,
         publicId = "vehicle-$id",
@@ -82,6 +123,11 @@ class CsvExportViewModelTest {
 }
 
 private class FakeCsvExportRepository : CsvExportRepository {
-    override suspend fun export(request: CsvExportRequest, destinationUriString: String): CsvExportResult =
-        CsvExportResult("bubu-export-2026-08-21-000000.zip", 1)
+    val destinations = mutableListOf<String>()
+    val requests = mutableListOf<CsvExportRequest>()
+    override suspend fun export(request: CsvExportRequest, destinationUriString: String): CsvExportResult {
+        destinations += destinationUriString
+        requests += request
+        return CsvExportResult("bubu-export-2026-08-21-000000.zip", 1)
+    }
 }

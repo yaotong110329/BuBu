@@ -1,5 +1,6 @@
 package com.kumo.bubu.feature.fuel
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -69,7 +70,13 @@ fun FuelFormRoute(
     LaunchedEffect(Unit) {
         viewModel.effects.collect { effect -> if (effect is FuelFormEffect.Saved) onSaved() }
     }
-    FuelFormScreen(state, viewModel::onEvent, onBack)
+    val cancel = {
+        if (!state.isSaving) {
+            viewModel.discardDraft(onBack)
+        }
+    }
+    BackHandler { cancel() }
+    FuelFormScreen(state, viewModel::onEvent, cancel)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -152,10 +159,16 @@ private fun FuelRecordScreen(
                     onEvent = onEvent,
                 )
             }
-            if (state.saveFailed) {
+            if (state.isDraftSaving || state.draftSaveFailed) {
+                item {
+                    Text(stringResource(if (state.draftSaveFailed) R.string.form_draft_save_error else R.string.form_draft_saving),
+                        color = if (state.draftSaveFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            if (state.saveFailed || state.loadFailed) {
                 item {
                     Text(
-                        text = stringResource(R.string.fuel_save_error),
+                        text = stringResource(if (state.draftRestoreFailed) R.string.form_draft_restore_error else if (state.loadFailed) R.string.fuel_load_error else R.string.fuel_save_error),
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall,
                     )
@@ -749,6 +762,7 @@ private fun FuelEconomyOutlierDialog(state: FuelFormUiState, onEvent: (FuelFormE
     )
 }
 
-private fun FuelFormUiState.error(field: FuelFormField): FuelFormError? = errors[field]
+private fun FuelFormUiState.error(field: FuelFormField): FuelFormError? =
+    if (calculationOverflowField == field) FuelFormError.CALCULATION_OVERFLOW else errors[field]
 
 private const val MILLIS_PER_DAY = 86_400_000L

@@ -16,6 +16,7 @@ import com.kumo.bubu.data.repository.OfflineReportRepository
 import com.kumo.bubu.data.repository.OfflineReminderRepository
 import com.kumo.bubu.data.repository.AutomaticReminderLabels
 import com.kumo.bubu.data.repository.DataStoreReminderNotificationSettings
+import com.kumo.bubu.data.repository.DataStoreMaintenanceSummaryStateStore
 import com.kumo.bubu.data.repository.DataStoreBackupReminderSettings
 import com.kumo.bubu.data.repository.DataStoreStatutoryReminderSettings
 import com.kumo.bubu.data.repository.DataStoreReportLayoutSettings
@@ -42,6 +43,8 @@ import com.kumo.bubu.domain.repository.RestoreRepository
 import com.kumo.bubu.domain.repository.ReportLayoutSettings
 import com.kumo.bubu.domain.repository.CloudBackupRepository
 import com.kumo.bubu.core.notification.ReminderNotificationScheduler
+import com.kumo.bubu.core.notification.AndroidMaintenanceSummaryNotificationGateway
+import com.kumo.bubu.core.notification.MaintenanceSummaryCoordinator
 import com.kumo.bubu.core.notification.ReminderNotifications
 import com.kumo.bubu.core.notification.WorkManagerReminderNotificationScheduler
 import com.kumo.bubu.core.notification.BackupReminderScheduler
@@ -56,10 +59,13 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import java.time.LocalDate
 
 class AppContainer(context: Context) {
     private val applicationContext = context.applicationContext
+    val formDraftRepository: com.kumo.bubu.domain.repository.FormDraftRepository =
+        com.kumo.bubu.data.repository.PrivateFormDraftRepository(java.io.File(applicationContext.filesDir, "form-drafts"))
     private val serviceMigrationLabels = ServiceMigrationLabels(
         maintenanceTitle = applicationContext.getString(R.string.migration_service_title_maintenance),
         repairTitle = applicationContext.getString(R.string.migration_service_title_repair),
@@ -236,6 +242,13 @@ class AppContainer(context: Context) {
         DataStoreReminderNotificationSettings(preferences)
     val reminderNotificationScheduler: ReminderNotificationScheduler =
         WorkManagerReminderNotificationScheduler(applicationContext)
+    val maintenanceSummaryCoordinator = MaintenanceSummaryCoordinator(
+        loadReminders = { serviceRepository.observeMaintenanceReminders(LocalDate.now()).first() },
+        notificationsEnabled = { reminderNotificationSettings.observeEnabled().first() },
+        canPost = { ReminderNotifications.canPost(applicationContext) },
+        stateStore = DataStoreMaintenanceSummaryStateStore(preferences),
+        gateway = AndroidMaintenanceSummaryNotificationGateway(applicationContext),
+    )
 
     init {
         applicationScope.launch {
@@ -284,6 +297,14 @@ class AppContainer(context: Context) {
                             ReminderNotifications.cancel(applicationContext, reminder.id)
                         }
                 }
+            }
+        }
+        applicationScope.launch {
+            combine(
+                serviceRepository.observeMaintenanceReminders(LocalDate.now()),
+                reminderNotificationSettings.observeEnabled(),
+            ) { _, _ -> Unit }.collect {
+                maintenanceSummaryCoordinator.reconcile(allowAlert = false)
             }
         }
     }

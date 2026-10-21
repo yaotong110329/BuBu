@@ -13,6 +13,8 @@ class FakeVehicleRepository(
 ) : VehicleRepository {
     val garage = MutableStateFlow(VehicleGarage(initialVehicles, initialVehicles.firstOrNull()?.publicId))
     val createdInputs = mutableListOf<VehicleInput>()
+    var failureAfterCreation: Exception? = null
+    private val createdIds = mutableMapOf<String, Long>()
     val updatedInputs = mutableListOf<Pair<Long, VehicleInput>>()
     val selectedPublicIds = mutableListOf<String>()
     val archiveChanges = mutableListOf<Pair<Long, Boolean>>()
@@ -25,9 +27,15 @@ class FakeVehicleRepository(
 
     override suspend fun getVehicle(id: Long): Vehicle? = garage.value.vehicles.firstOrNull { it.id == id }
 
-    override suspend fun createVehicle(input: VehicleInput): Long {
+    override suspend fun findVehicleIdByPublicId(publicId: String): Long? =
+        createdIds[publicId] ?: garage.value.vehicles.firstOrNull { it.publicId == publicId }?.id
+
+    override suspend fun createVehicle(input: VehicleInput, creationId: String?): Long {
+        creationId?.let { createdIds[it]?.let { id -> return id } }
         createdInputs += input
-        return createdInputs.size.toLong()
+        val id = createdInputs.size.toLong().also { id -> if (creationId != null) createdIds[creationId] = id }
+        failureAfterCreation?.let { throw it }
+        return id
     }
 
     override suspend fun updateVehicle(id: Long, input: VehicleInput) {

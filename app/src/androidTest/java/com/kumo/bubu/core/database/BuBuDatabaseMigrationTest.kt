@@ -45,6 +45,7 @@ class BuBuDatabaseMigrationTest {
                 BuBuDatabase.MIGRATION_11_12,
                 BuBuDatabase.MIGRATION_12_13,
                 BuBuDatabase.MIGRATION_13_14,
+                BuBuDatabase.MIGRATION_14_15,
             )
             .allowMainThreadQueries()
             .build()

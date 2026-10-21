@@ -18,6 +18,8 @@ import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancel
 import org.junit.Assert.assertArrayEquals
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -64,6 +66,67 @@ class OfflineServiceRepositoryTest {
         database.close()
         managedTestFiles.forEach(File::delete)
         managedTestFiles.clear()
+    }
+
+    @Test
+    fun cancellingCopiedAttachmentBeforeDeliveryRemovesOnlyItsPrivateCopy() = runBlocking {
+        val source = File(context.cacheDir, "cloud-backup/cancel-delivery-${UUID.randomUUID()}.png")
+        source.parentFile!!.mkdirs()
+        val bytes = android.util.Base64.decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aG1sAAAAASUVORK5CYII=",
+            android.util.Base64.DEFAULT,
+        )
+        source.writeBytes(bytes)
+        managedTestFiles += source
+        val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", source)
+        val directory = File(context.filesDir, "attachments/service")
+        val previousFiles = directory.listFiles().orEmpty().map { it.name }.toSet()
+        val continuations = java.util.concurrent.LinkedBlockingQueue<Runnable>()
+        val dispatcher = object : kotlinx.coroutines.CoroutineDispatcher() {
+            override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+                continuations.add(block)
+            }
+        }
+        val scope = kotlinx.coroutines.CoroutineScope(dispatcher)
+        var delivered = false
+        val job = scope.launch {
+            repository.stageServiceAttachments(listOf(uri.toString()), UUID.randomUUID().toString())
+            delivered = true
+        }
+        try {
+            requireNotNull(continuations.poll(10, java.util.concurrent.TimeUnit.SECONDS)).run()
+            val delivery = requireNotNull(continuations.poll(10, java.util.concurrent.TimeUnit.SECONDS))
+            val copied = directory.listFiles().orEmpty().filter { it.name !in previousFiles }
+            managedTestFiles += copied
+            assertEquals("IO must have produced exactly one copy before caller delivery", 1, copied.size)
+            job.cancel()
+            delivery.run()
+            val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10)
+            while (!job.isCompleted && System.nanoTime() < deadline) {
+                continuations.poll(100, java.util.concurrent.TimeUnit.MILLISECONDS)?.run()
+            }
+            assertTrue("Cancelled staging must complete its cleanup", job.isCompleted)
+            assertFalse(delivered)
+            assertNull(repository.readServiceAttachmentBytes("attachments/service/${copied.single().name}"))
+            assertFalse(copied.single().exists())
+            assertArrayEquals(bytes, source.readBytes())
+            assertEquals(0, repository.observeRecentServiceRecords().first().size)
+        } finally {
+            job.cancel()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun retryingCommittedCreationKeepsOneServiceRecordAndItsOriginalItems() = runBlocking {
+        val vehicleId = database.vehicleDao().insert(vehicle())
+        val creationId = UUID.randomUUID().toString()
+        val originalId = repository.createServiceRecord(input(vehicleId, 1_500, listOf(item("機油", 500))), creationId)
+        val retryId = repository.createServiceRecord(input(vehicleId, 900, listOf(item("過期草稿", 50))), creationId)
+        assertEquals(originalId, retryId)
+        assertEquals(originalId, repository.findServiceRecordIdByPublicId(creationId))
+        assertEquals(1, repository.observeRecentServiceRecords().first().size)
+        assertEquals(listOf("機油"), requireNotNull(repository.getServiceRecord(originalId)).items.map { it.nameSnapshot })
     }
 
     @Test fun createEditAndDeleteWorkOrderKeepsItemsAndOdometerConsistent() = runBlocking {

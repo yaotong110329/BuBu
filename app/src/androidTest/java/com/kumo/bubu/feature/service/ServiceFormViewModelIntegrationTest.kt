@@ -1,6 +1,15 @@
 package com.kumo.bubu.feature.service
 
 import android.content.Context
+import androidx.core.content.FileProvider
+import androidx.lifecycle.SavedStateHandle
+import com.kumo.bubu.data.attachment.PrivateAttachmentStore
+import java.io.File
+import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertTrue
 import androidx.lifecycle.viewModelScope
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
@@ -35,10 +44,12 @@ class ServiceFormViewModelIntegrationTest {
     private lateinit var database: BuBuDatabase
     private lateinit var repository: OfflineServiceRepository
     private lateinit var vehicle: Vehicle
+    private lateinit var context: Context
+    private val testFiles = mutableListOf<File>()
 
     @Before
     fun setUp() = runBlocking {
-        val context = ApplicationProvider.getApplicationContext<Context>()
+        context = ApplicationProvider.getApplicationContext<Context>()
         database = Room.inMemoryDatabaseBuilder(context, BuBuDatabase::class.java)
             .allowMainThreadQueries()
             .build()
@@ -52,12 +63,125 @@ class ServiceFormViewModelIntegrationTest {
             serviceItemDao = database.serviceItemDao(),
             serviceTypeDao = database.serviceTypeDao(),
             builtInServiceTypeSeeds = listOf(BuiltInServiceTypeSeed("engine-oil", "機油")),
+            attachmentStore = PrivateAttachmentStore(context, "attachment"),
         )
     }
 
     @After
     fun tearDown() {
         database.close()
+        testFiles.forEach(File::delete)
+        testFiles.clear()
+    }
+
+    @Test
+    fun restoredAttachmentSurvivesStartupReconciliationUntilDraftIsCancelled() = runBlocking {
+        val source = File(context.cacheDir, "cloud-backup/draft-source-${UUID.randomUUID()}.png")
+        source.parentFile!!.mkdirs()
+        val bytes = android.util.Base64.decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aG1sAAAAASUVORK5CYII=",
+            android.util.Base64.DEFAULT,
+        )
+        source.writeBytes(bytes)
+        testFiles += source
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", source)
+        val handle = SavedStateHandle()
+        val original = withContext(Dispatchers.Main.immediate) {
+            ServiceFormViewModel(repository, SingleVehicleRepository(vehicle), savedStateHandle = handle)
+        }
+        var recreated: ServiceFormViewModel? = null
+        try {
+            withTimeout(5_000) { original.uiState.first { !it.isLoading } }
+            withContext(Dispatchers.Main.immediate) {
+                original.onEvent(ServiceFormEvent.TitleChanged("尚未儲存附件工單"))
+                original.onEvent(ServiceFormEvent.AttachmentsSelected(listOf(uri.toString())))
+            }
+            val selected = withTimeout(5_000) {
+                original.uiState.first { it.attachments.size == 1 && !it.isImportingAttachments }
+            }.attachments.single()
+            val privateCopy = File(context.filesDir, selected.relativePath)
+            testFiles += privateCopy
+            assertTrue(privateCopy.setLastModified(System.currentTimeMillis() - 2L * 24 * 60 * 60 * 1_000))
+            val savedInputs = withContext(Dispatchers.Main.immediate) {
+                handle.keys().associateWith { handle.get<Any?>(it) }
+            }
+            original.viewModelScope.cancel()
+            repository.retryPendingAttachmentDeletions()
+            val restored = withContext(Dispatchers.Main.immediate) {
+                ServiceFormViewModel(repository, SingleVehicleRepository(vehicle), savedStateHandle = SavedStateHandle(savedInputs))
+            }
+            recreated = restored
+            val recovered = withTimeout(5_000) { restored.uiState.first { !it.isLoading } }
+            assertEquals("尚未儲存附件工單", recovered.title)
+            assertEquals(selected.relativePath, recovered.attachments.single().relativePath)
+            assertArrayEquals(bytes, restored.readAttachmentBytes(selected.relativePath))
+            assertEquals(0, repository.observeRecentServiceRecords().first().size)
+            withContext(Dispatchers.Main.immediate) { restored.discardUnsavedAttachments {} }
+            withTimeout(5_000) {
+                while (repository.readServiceAttachmentBytes(selected.relativePath) != null) delay(25)
+            }
+            assertArrayEquals(bytes, source.readBytes())
+        } finally {
+            original.viewModelScope.cancel()
+            recreated?.viewModelScope?.cancel()
+        }
+    }
+
+    @Test
+    fun corruptDraftRetainsItsOwnerForAttachmentCleanupAndCannotCreateAWorkOrder() = runBlocking {
+        val source = File(context.cacheDir, "cloud-backup/draft-source-${UUID.randomUUID()}.png")
+        source.parentFile!!.mkdirs()
+        val bytes = android.util.Base64.decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aG1sAAAAASUVORK5CYII=",
+            android.util.Base64.DEFAULT,
+        )
+        source.writeBytes(bytes)
+        testFiles += source
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", source)
+        val handle = SavedStateHandle()
+        val original = withContext(Dispatchers.Main.immediate) {
+            ServiceFormViewModel(repository, SingleVehicleRepository(vehicle), savedStateHandle = handle)
+        }
+        var recreated: ServiceFormViewModel? = null
+        try {
+            withTimeout(5_000) { original.uiState.first { !it.isLoading } }
+            withContext(Dispatchers.Main.immediate) {
+                original.onEvent(ServiceFormEvent.TitleChanged("尚未儲存附件工單"))
+                original.onEvent(ServiceFormEvent.AttachmentsSelected(listOf(uri.toString())))
+            }
+            val selected = withTimeout(5_000) {
+                original.uiState.first { it.attachments.size == 1 && !it.isImportingAttachments }
+            }.attachments.single()
+            val privateCopy = File(context.filesDir, selected.relativePath)
+            testFiles += privateCopy
+            assertTrue(privateCopy.setLastModified(System.currentTimeMillis() - 2L * 24 * 60 * 60 * 1_000))
+            val savedInputs = withContext(Dispatchers.Main.immediate) {
+                handle.keys().associateWith { handle.get<Any?>(it) }.toMutableMap().also { snapshot ->
+                    val contentsKey = snapshot.entries.single { (_, value) -> value is String && value.startsWith("{") }.key
+                    snapshot[contentsKey] = "{malformed draft"
+                }
+            }
+            original.viewModelScope.cancel()
+            repository.retryPendingAttachmentDeletions()
+            val restored = withContext(Dispatchers.Main.immediate) {
+                ServiceFormViewModel(repository, SingleVehicleRepository(vehicle), savedStateHandle = SavedStateHandle(savedInputs))
+            }
+            recreated = restored
+            val recovered = withTimeout(5_000) { restored.uiState.first { !it.isLoading && it.sourceInvalid } }
+            assertEquals(ServiceFormError.DRAFT_RESTORE_FAILED, recovered.error)
+            withContext(Dispatchers.Main.immediate) {
+                restored.onEvent(ServiceFormEvent.TitleChanged("不得當成新工單"))
+                restored.onEvent(ServiceFormEvent.Save)
+            }
+            withTimeout(5_000) {
+                while (repository.readServiceAttachmentBytes(selected.relativePath) != null) delay(25)
+            }
+            assertArrayEquals(bytes, source.readBytes())
+            assertEquals(0, repository.observeRecentServiceRecords().first().size)
+        } finally {
+            original.viewModelScope.cancel()
+            recreated?.viewModelScope?.cancel()
+        }
     }
 
     @Test
@@ -66,6 +190,7 @@ class ServiceFormViewModelIntegrationTest {
             serviceRepository = repository,
             vehicleRepository = SingleVehicleRepository(vehicle),
             nowProvider = { LocalDateTime.of(LocalDate.now(), LocalTime.NOON) },
+            savedStateHandle = androidx.lifecycle.SavedStateHandle(),
         )
         withTimeout(5_000) { viewModel.uiState.first { !it.isLoading } }
         viewModel.onEvent(ServiceFormEvent.TitleChanged("定期保養"))
@@ -139,7 +264,9 @@ private class SingleVehicleRepository(vehicle: Vehicle) : VehicleRepository {
     override suspend fun getVehicle(id: Long): Vehicle? =
         garage.value.vehicles.firstOrNull { vehicle -> vehicle.id == id }
 
-    override suspend fun createVehicle(input: VehicleInput): Long = error("Not used by this test.")
+    override suspend fun findVehicleIdByPublicId(publicId: String): Long? = garage.value.vehicles.firstOrNull { it.publicId == publicId }?.id
+
+    override suspend fun createVehicle(input: VehicleInput, creationId: String?): Long = error("Not used by this test.")
 
     override suspend fun updateVehicle(id: Long, input: VehicleInput) = error("Not used by this test.")
 

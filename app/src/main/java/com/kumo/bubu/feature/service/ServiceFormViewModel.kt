@@ -1,5 +1,7 @@
 package com.kumo.bubu.feature.service
 
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.initializer
@@ -29,6 +31,16 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import java.util.logging.Level
+import java.util.logging.Logger
+import kotlinx.serialization.json.Json
+import com.kumo.bubu.core.state.FormDraftPersistence
+import com.kumo.bubu.domain.repository.FormDraftRepository
 
 class ServiceFormViewModel(
     private val serviceRepository: ServiceRepository,
@@ -37,29 +49,133 @@ class ServiceFormViewModel(
     private val initialVehicleId: Long? = null,
     private val initialServiceTypeId: Long? = null,
     nowProvider: () -> LocalDateTime = LocalDateTime::now,
+    savedStateHandle: SavedStateHandle,
+    draftRepository: FormDraftRepository? = null,
 ) : ViewModel() {
     private val initialNow = nowProvider()
-    private val _uiState = MutableStateFlow(
-        ServiceFormUiState(
-            date = initialNow.toLocalDate().toString(),
-            time = initialNow.toLocalTime().withSecond(0).withNano(0).toString(),
-            editingId = editId,
-        ),
-    )
+    private val _uiState = MutableStateFlow(ServiceFormUiState(
+        date = initialNow.toLocalDate().toString(),
+        time = initialNow.toLocalTime().withSecond(0).withNano(0).toString(),
+        editingId = editId,
+    ))
     val uiState: StateFlow<ServiceFormUiState> = _uiState.asStateFlow()
+    private val draftPersistence = FormDraftPersistence(savedStateHandle, DRAFT_KEY, draftRepository, viewModelScope) { pending, failed ->
+        _uiState.update { it.copy(isDraftSaving = pending, draftSaveFailed = failed) }
+    }
+    private var restoredDraft = decodeDraft(draftPersistence.inlineContents())
+    private val draftId = draftPersistence.draftId
+    private var sourcePublicId = restoredDraft?.sourcePublicId
+    private var sourceReady = editId == null && restoredDraft == null && !draftPersistence.isFileBacked
+    private var garageReady = false
+    private var attachmentsReady = restoredDraft == null && !draftPersistence.isFileBacked
+    private var draftDiscarded = false
+    private var attachmentImportJob: Job? = null
 
     private val saved = Channel<Unit>(Channel.BUFFERED)
     val savedEffects = saved.receiveAsFlow()
-    private var preservedPaymentMethod: PaymentMethod? = null
-    private var initialServiceTypeApplied = false
+    private var preservedPaymentMethod: PaymentMethod? = restoredDraft?.preservedPaymentMethod
+    private var initialServiceTypeApplied = restoredDraft?.initialServiceTypeApplied ?: false
 
     init {
+        if (draftPersistence.isFileBacked) viewModelScope.launch {
+            try {
+                if (editId == null && serviceRepository.findServiceRecordIdByPublicId(draftId) != null) {
+                    withContext(NonCancellable) {
+                        serviceRepository.discardServiceDraft(draftId)
+                        discardDraft()
+                    }
+                    saved.send(Unit)
+                } else {
+                    restoredDraft = decodeDraft(draftPersistence.readFile())
+                    initializeDraft()
+                }
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                draftPersistence.recordRestoreFailure(failure)
+                invalidateSource(ServiceFormError.DRAFT_RESTORE_FAILED)
+            }
+        } else initializeDraft()
+    }
+
+    private fun decodeDraft(contents: String?): ServiceFormDraft? {
+        if (contents == null) return null
+        return try {
+            Json.decodeFromString<ServiceFormDraft>(contents).also {
+                require(it.sourceId == editId && it.draftId == draftPersistence.draftId)
+                it.toUiState()
+            }
+        } catch (failure: Exception) {
+            draftPersistence.recordRestoreFailure(failure)
+            null
+        }
+    }
+
+    private fun initializeDraft() {
+        if (draftPersistence.restoreFailed) {
+            _uiState.update { it.copy(isLoading = false, sourceInvalid = true, error = ServiceFormError.DRAFT_RESTORE_FAILED) }
+            viewModelScope.launch { invalidateSource(ServiceFormError.DRAFT_RESTORE_FAILED) }
+            return
+        }
+        val draft = restoredDraft
+        sourcePublicId = draft?.sourcePublicId
+        sourceReady = editId == null && draft == null
+        attachmentsReady = draft == null
+        preservedPaymentMethod = draft?.preservedPaymentMethod
+        initialServiceTypeApplied = draft?.initialServiceTypeApplied ?: false
+        _uiState.value = draft?.toUiState() ?: ServiceFormUiState(
+            date = initialNow.toLocalDate().toString(),
+            time = initialNow.toLocalTime().withSecond(0).withNano(0).toString(),
+            editingId = editId,
+        )
+        if (draft != null) viewModelScope.launch {
+            try {
+                if (editId == null) {
+                    if (serviceRepository.findServiceRecordIdByPublicId(draftId) != null) {
+                        serviceRepository.discardServiceDraft(draftId)
+                        discardDraft()
+                        saved.send(Unit)
+                        return@launch
+                    }
+                    sourceReady = true
+                }
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                Logger.getLogger(ServiceFormViewModel::class.java.name)
+                    .log(Level.WARNING, "Unable to reconcile a restored service draft.", failure)
+                _uiState.update { it.copy(isLoading = false, sourceInvalid = true, error = ServiceFormError.SAVE_FAILED) }
+                return@launch
+            }
+            runCatching {
+                serviceRepository.recoverServiceDraftAttachments(draftId, draft.attachments.filter { it.isStaged }.map { it.relativePath }.toSet())
+            }.onSuccess { valid ->
+                if (draftDiscarded || _uiState.value.sourceInvalid) return@onSuccess
+                attachmentsReady = true
+                _uiState.update { state ->
+                    val retained = state.attachments.filter { !it.isStaged || it.relativePath in valid }
+                    state.copy(attachments = retained, isLoading = !sourceReady || !garageReady,
+                        error = if (retained.size != state.attachments.size) ServiceFormError.ATTACHMENT_COPY_FAILED else state.error)
+                }
+                persistDraft()
+            }.onFailure {
+                if (it is CancellationException) throw it
+                _uiState.update { state -> state.copy(isLoading = false, sourceInvalid = true, error = ServiceFormError.ATTACHMENT_CLEANUP_FAILED) }
+            }
+        }
         viewModelScope.launch { serviceRepository.ensureDefaultServiceTypes() }
         viewModelScope.launch {
             combine(
                 vehicleRepository.observeGarage(),
                 serviceRepository.observeServiceTypes(),
             ) { garage, types -> garage to types }.collect { (garage, types) ->
+                garageReady = true
+                val previous = _uiState.value
+                if (previous.sourceInvalid || draftDiscarded) return@collect
+                val expectedVehiclePublicId = previous.selectedVehicle?.publicId ?: restoredDraft?.selectedVehiclePublicId
+                if (previous.vehicleId != null && expectedVehiclePublicId != null && !draftDiscarded &&
+                    garage.vehicles.none { it.id == previous.vehicleId && it.publicId == expectedVehiclePublicId }) {
+                    invalidateSource(ServiceFormError.VEHICLE_NOT_FOUND)
+                    return@collect
+                }
                 _uiState.update { state ->
                     val activeVehicles = garage.vehicles.filterNot { it.isArchived && it.id != state.vehicleId }
                     val selectedId = state.vehicleId?.takeIf { id -> activeVehicles.any { it.id == id } }
@@ -71,10 +187,11 @@ class ServiceFormViewModel(
                         vehicles = activeVehicles,
                         types = types,
                         vehicleId = selectedId,
-                        isLoading = false,
+                        isLoading = !sourceReady || !attachmentsReady,
                     )
                 }
-                if (!initialServiceTypeApplied && editId == null) {
+                persistDraft()
+                if (restoredDraft == null && !initialServiceTypeApplied && editId == null) {
                     types.firstOrNull { it.id == initialServiceTypeId }?.let { type ->
                         initialServiceTypeApplied = true
                         openTypeItemEditor(type)
@@ -88,7 +205,7 @@ class ServiceFormViewModel(
     }
 
     fun onEvent(event: ServiceFormEvent) {
-        if (_uiState.value.isSaving) return
+        if (_uiState.value.isSaving || _uiState.value.isLoading || _uiState.value.sourceInvalid || draftDiscarded) return
         when (event) {
             is ServiceFormEvent.VehicleChanged -> change { copy(vehicleId = event.value) }
             is ServiceFormEvent.DateChanged -> change { copy(date = event.value) }
@@ -135,20 +252,55 @@ class ServiceFormViewModel(
     }
 
     fun discardUnsavedAttachments(onFinished: () -> Unit) {
-        val stagedPaths = _uiState.value.attachments.filter { it.isStaged }.map { it.relativePath }
-        if (stagedPaths.isEmpty()) {
-            onFinished()
-            return
-        }
+        if (_uiState.value.isSaving || _uiState.value.isImportingAttachments) return
+        _uiState.update { it.copy(isImportingAttachments = true) }
         viewModelScope.launch {
-            val cleanupFailed = stagedPaths.any { path ->
-                runCatching { serviceRepository.discardStagedServiceAttachment(path) }.isFailure
+            runCatching {
+                withContext(NonCancellable) {
+                    serviceRepository.discardServiceDraft(draftId)
+                    discardDraft()
+                }
+            }.onSuccess {
+                    _uiState.update { it.copy(isImportingAttachments = false, attachments = it.attachments.filterNot { attachment -> attachment.isStaged }) }
+                    onFinished()
+                }.onFailure {
+                    if (it is CancellationException) throw it
+                    _uiState.update { it.copy(isImportingAttachments = false, error = ServiceFormError.ATTACHMENT_CLEANUP_FAILED) }
+                }
+        }
+    }
+
+    private suspend fun invalidateSource(error: ServiceFormError) {
+        sourceReady = false
+        _uiState.update { it.copy(isLoading = false, sourceInvalid = true, error = error) }
+        runCatching {
+            withContext(NonCancellable) {
+                attachmentImportJob?.cancelAndJoin()
+                serviceRepository.discardServiceDraft(draftId)
+                discardDraft()
             }
-            if (cleanupFailed) {
+        }
+            .onFailure {
+                if (it is CancellationException) throw it
                 _uiState.update { it.copy(error = ServiceFormError.ATTACHMENT_CLEANUP_FAILED) }
-            } else {
-                onFinished()
             }
+    }
+
+    private suspend fun discardDraft() {
+        draftDiscarded = true
+        try {
+            withContext(NonCancellable) { draftPersistence.discard() }
+        } catch (failure: Exception) {
+            draftDiscarded = false
+            throw failure
+        }
+    }
+
+    private fun persistDraft() {
+        if (!draftDiscarded && sourceReady && garageReady && attachmentsReady) {
+            draftPersistence.save(Json.encodeToString(
+                _uiState.value.toDraft(draftId, sourcePublicId, preservedPaymentMethod, initialServiceTypeApplied),
+            ))
         }
     }
 
@@ -156,11 +308,24 @@ class ServiceFormViewModel(
         runCatching { serviceRepository.readServiceAttachmentBytes(relativePath) }.getOrNull()
 
     private suspend fun load(id: Long) {
-        val details = serviceRepository.getServiceRecord(id) ?: run {
-            _uiState.update { it.copy(isLoading = false, error = ServiceFormError.RECORD_NOT_FOUND) }
+        val details = serviceRepository.getServiceRecord(id)
+        if (details == null || (restoredDraft != null && details.record.publicId != sourcePublicId)) {
+            invalidateSource(ServiceFormError.RECORD_NOT_FOUND)
             return
         }
-        val recordVehicle = vehicleRepository.getVehicle(details.record.vehicleId)
+        val recordVehicle = vehicleRepository.getVehicle(restoredDraft?.vehicleId ?: details.record.vehicleId)
+        if (recordVehicle == null || (restoredDraft?.selectedVehiclePublicId != null &&
+                recordVehicle.publicId != restoredDraft?.selectedVehiclePublicId)) {
+            invalidateSource(ServiceFormError.VEHICLE_NOT_FOUND)
+            return
+        }
+        sourceReady = true
+        sourcePublicId = details.record.publicId
+        if (restoredDraft != null) {
+            _uiState.update { it.copy(vehicles = (it.vehicles + recordVehicle).distinctBy { vehicle -> vehicle.id }, isLoading = !garageReady || !attachmentsReady) }
+            persistDraft()
+            return
+        }
         _uiState.update { state ->
             state.copy(
                 vehicles = (state.vehicles + listOfNotNull(recordVehicle)).distinctBy { it.id },
@@ -195,6 +360,7 @@ class ServiceFormViewModel(
             )
         }
         preservedPaymentMethod = details.record.paymentMethod
+        persistDraft()
     }
 
     private fun openTypeItemEditor(type: com.kumo.bubu.domain.model.ServiceType) {
@@ -306,52 +472,77 @@ class ServiceFormViewModel(
         }
         if (state.isImportingAttachments) return
         _uiState.update { it.copy(isImportingAttachments = true, error = null) }
-        viewModelScope.launch {
-            runCatching { serviceRepository.stageServiceAttachments(uriStrings) }
-                .onSuccess { staged ->
-                    _uiState.update { current ->
-                        current.copy(
-                            attachments = current.attachments + staged.map { attachment ->
-                                ServiceAttachmentDraft(
-                                    relativePath = attachment.relativePath,
-                                    displayName = attachment.displayName,
-                                    mimeType = attachment.mimeType,
-                                    isStaged = true,
-                                )
-                            },
-                            isImportingAttachments = false,
-                        )
-                    }
+        attachmentImportJob = viewModelScope.launch {
+            try {
+                val staged = serviceRepository.stageServiceAttachments(uriStrings, draftId)
+                if (draftDiscarded || _uiState.value.sourceInvalid) {
+                    withContext(NonCancellable) { serviceRepository.discardServiceDraft(draftId) }
+                    return@launch
                 }
-                .onFailure { throwable ->
-                    _uiState.update {
-                        it.copy(isImportingAttachments = false, error = throwable.toAttachmentError())
-                    }
+                _uiState.update { current ->
+                    current.copy(
+                        attachments = current.attachments + staged.map { attachment ->
+                            ServiceAttachmentDraft(
+                                relativePath = attachment.relativePath,
+                                displayName = attachment.displayName,
+                                mimeType = attachment.mimeType,
+                                isStaged = true,
+                            )
+                        },
+                    )
                 }
+                persistDraft()
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                _uiState.update { current ->
+                    if (current.sourceInvalid) current else current.copy(error = failure.toAttachmentError())
+                }
+            } finally {
+                _uiState.update { it.copy(isImportingAttachments = false) }
+            }
         }
     }
 
     private fun removeAttachment(relativePath: String) {
+        if (_uiState.value.isImportingAttachments) return
         val attachment = _uiState.value.attachments.firstOrNull { it.relativePath == relativePath } ?: return
-        change { copy(attachments = attachments.filterNot { it.relativePath == relativePath }) }
-        if (attachment.isStaged) {
-            viewModelScope.launch { runCatching { serviceRepository.discardStagedServiceAttachment(relativePath) } }
+        if (!attachment.isStaged) {
+            change { copy(attachments = attachments.filterNot { it.relativePath == relativePath }) }
+        } else {
+            _uiState.update { it.copy(isImportingAttachments = true) }
+            viewModelScope.launch {
+                runCatching { serviceRepository.discardStagedServiceAttachment(relativePath, draftId) }
+                    .onSuccess { change { copy(isImportingAttachments = false, attachments = attachments.filterNot { it.relativePath == relativePath }) } }
+                    .onFailure {
+                        if (it is CancellationException) throw it
+                        _uiState.update { it.copy(isImportingAttachments = false, error = ServiceFormError.ATTACHMENT_CLEANUP_FAILED) }
+                    }
+            }
         }
     }
 
     private fun save() {
-        if (_uiState.value.isSaving) return
+        if (_uiState.value.isImportingAttachments) return
+        if (_uiState.value.isSaving || _uiState.value.isLoading || _uiState.value.sourceInvalid || draftDiscarded) return
         val state = _uiState.value
         val input = state.toValidatedInput() ?: return
         _uiState.update { it.copy(isSaving = true, error = null) }
         viewModelScope.launch {
             runCatching {
                 if (state.editingId == null) {
-                    serviceRepository.createServiceRecord(input)
+                    serviceRepository.createServiceRecord(input, draftId)
                 } else {
                     serviceRepository.updateServiceRecord(state.editingId, input)
                 }
             }.onSuccess {
+                withContext(NonCancellable) {
+                    runCatching { serviceRepository.releaseServiceDraft(draftId) }
+                        .onFailure { Logger.getLogger(ServiceFormViewModel::class.java.name).log(Level.WARNING, "Saved attachment draft ownership will be cleaned on startup.", it) }
+                }
+                runCatching { discardDraft() }.onFailure {
+                    Logger.getLogger(ServiceFormViewModel::class.java.name)
+                        .log(Level.WARNING, "Committed service draft cleanup will retry when restored.", it)
+                }
                 _uiState.update { current ->
                     current.copy(
                         isSaving = false,
@@ -443,6 +634,7 @@ class ServiceFormViewModel(
 
     private fun change(block: ServiceFormUiState.() -> ServiceFormUiState) {
         _uiState.update { it.block().copy(error = null) }
+        persistDraft()
     }
 
     private fun Throwable.toAttachmentError(): ServiceFormError = when (this) {
@@ -467,14 +659,20 @@ class ServiceFormViewModel(
     }
 
     companion object {
+        private const val DRAFT_KEY = "service.form.draft.v1"
+
         fun factory(
             serviceRepository: ServiceRepository,
             vehicleRepository: VehicleRepository,
             editId: Long? = null,
             initialVehicleId: Long? = null,
             initialServiceTypeId: Long? = null,
+            draftRepository: FormDraftRepository? = null,
         ): ViewModelProvider.Factory = viewModelFactory {
-            initializer { ServiceFormViewModel(serviceRepository, vehicleRepository, editId, initialVehicleId, initialServiceTypeId) }
+            initializer {
+                ServiceFormViewModel(serviceRepository, vehicleRepository, editId, initialVehicleId,
+                    initialServiceTypeId, savedStateHandle = createSavedStateHandle(), draftRepository = draftRepository)
+            }
         }
     }
 }

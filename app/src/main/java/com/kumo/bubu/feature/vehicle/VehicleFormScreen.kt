@@ -1,5 +1,6 @@
 package com.kumo.bubu.feature.vehicle
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -50,7 +51,13 @@ fun VehicleFormRoute(
             if (effect == VehicleFormEffect.Saved) onSaved()
         }
     }
-    VehicleFormScreen(uiState, viewModel::onEvent, onBack)
+    val cancel = {
+        if (!uiState.isSaving) {
+            viewModel.discardDraft(onBack)
+        }
+    }
+    BackHandler { cancel() }
+    VehicleFormScreen(uiState, viewModel::onEvent, cancel)
 }
 
 @Composable
@@ -78,14 +85,14 @@ fun VehicleFormScreen(
     ) { padding ->
         when {
             uiState.isLoading -> CenteredMessage(modifier = Modifier.padding(padding), loading = true)
-            uiState.loadFailed -> CenteredMessage(modifier = Modifier.padding(padding), loading = false)
+            uiState.loadFailed -> CenteredMessage(modifier = Modifier.padding(padding), loading = false, draftRestoreFailed = uiState.draftRestoreFailed)
             else -> VehicleFormContent(uiState, onEvent, Modifier.padding(padding))
         }
     }
 }
 
 @Composable
-private fun CenteredMessage(modifier: Modifier, loading: Boolean) {
+private fun CenteredMessage(modifier: Modifier, loading: Boolean, draftRestoreFailed: Boolean = false) {
     Column(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Center,
@@ -93,7 +100,7 @@ private fun CenteredMessage(modifier: Modifier, loading: Boolean) {
     ) {
         if (loading) CircularProgressIndicator()
         Text(
-            stringResource(if (loading) R.string.loading_vehicle else R.string.vehicle_load_error),
+            stringResource(if (loading) R.string.loading_vehicle else if (draftRestoreFailed) R.string.form_draft_restore_error else R.string.vehicle_load_error),
             modifier = Modifier.padding(top = 12.dp),
         )
     }
@@ -276,6 +283,8 @@ private fun FormTextField(
 @Composable
 private fun SaveSection(state: VehicleFormUiState, onEvent: (VehicleFormEvent) -> Unit) {
     if (state.saveFailed) Text(stringResource(R.string.vehicle_save_error), color = MaterialTheme.colorScheme.error)
+    if (state.isDraftSaving) Text(stringResource(R.string.form_draft_saving), color = MaterialTheme.colorScheme.onSurfaceVariant)
+    if (state.draftSaveFailed) Text(stringResource(R.string.form_draft_save_error), color = MaterialTheme.colorScheme.error)
     Button(
         onClick = { onEvent(VehicleFormEvent.Save) },
         modifier = Modifier.fillMaxWidth(),

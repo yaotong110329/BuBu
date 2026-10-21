@@ -16,9 +16,9 @@ class BackupArchiveWriterTest {
                 destination = destination,
                 appVersion = "1.2.3",
                 createdAtEpochMillis = 1_700_000_000_000,
-                recordCounts = mapOf("vehicles" to 1, "fuelRecords" to 2),
+                recordCounts = BackupArchiveTestData.counts(1),
                 contents = listOf(
-                    BackupFileContent("data.json", "{\"vehicles\":[]}".encodeToByteArray()),
+                    BackupFileContent("data.json", BackupArchiveTestData.json(1)),
                     BackupFileContent("attachments/receipt-1", byteArrayOf(1, 2, 3)),
                 ),
             )

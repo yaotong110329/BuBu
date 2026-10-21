@@ -1,6 +1,10 @@
 package com.kumo.bubu.feature.reminder
 
 import androidx.lifecycle.ViewModel
+import com.kumo.bubu.core.state.LocalDateState
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -73,6 +77,7 @@ sealed interface ReminderEvent {
     data class SelectVehicle(val vehicleId: Long) : ReminderEvent
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class RemindersViewModel(
     private val reminderRepository: ReminderRepository,
     private val serviceRepository: ServiceRepository,
@@ -81,8 +86,10 @@ class RemindersViewModel(
     private val notificationScheduler: ReminderNotificationScheduler,
     private val todayProvider: () -> LocalDate = LocalDate::now,
 ) : ViewModel() {
+    private val dateState = LocalDateState(viewModelScope, todayProvider)
     private val actionFailed = MutableStateFlow(false)
     private val selectedVehicleId = MutableStateFlow<Long?>(null)
+    private val focusedReminderId = MutableStateFlow<Long?>(null)
 
     init {
         viewModelScope.launch {
@@ -103,11 +110,15 @@ class RemindersViewModel(
         selectedVehicleId,
     ) { inputs, selectedId -> inputs to selectedId }.let { inputsWithSelectedVehicle -> combine(
         inputsWithSelectedVehicle,
-        serviceRepository.observeMaintenanceReminders(todayProvider()),
-    ) { (inputs, requestedVehicleId), maintenanceReminders ->
+        dateState.dates.flatMapLatest { today ->
+            serviceRepository.observeMaintenanceReminders(today).map { today to it }
+        },
+        focusedReminderId,
+    ) { (inputs, requestedVehicleId), (today, maintenanceReminders), focusedId ->
         val (reminders, vehicles, failed, notificationsEnabled) = inputs
         val activeVehicles = vehicles.filterNot { it.isArchived }
-        val selectedId = requestedVehicleId?.takeIf { requested -> activeVehicles.any { it.id == requested } }
+        val targetVehicleId = reminders.firstOrNull { it.id == focusedId }?.vehicleId
+        val selectedId = (requestedVehicleId ?: targetVehicleId)?.takeIf { requested -> activeVehicles.any { it.id == requested } }
             ?: activeVehicles.firstOrNull()?.id
         val vehiclesById = activeVehicles.associateBy { it.id }
         val rows = reminders.filter { it.vehicleId == selectedId }.mapNotNull { reminder ->
@@ -116,7 +127,7 @@ class RemindersViewModel(
                     reminder = reminder,
                     vehicleName = vehicle.name,
                     currentOdometerKm = vehicle.currentOdometerKm,
-                    status = reminder.status(vehicle.currentOdometerKm, todayProvider()),
+                    status = reminder.status(vehicle.currentOdometerKm, today),
                 )
             }
         }.sortedWith(
@@ -151,6 +162,15 @@ class RemindersViewModel(
         SharingStarted.WhileSubscribed(5_000),
         RemindersUiState(),
     )
+
+    fun focusReminder(id: Long) {
+        focusedReminderId.value = id
+        selectedVehicleId.value = null
+    }
+
+    fun onForeground() = dateState.onForeground()
+
+    fun onBackground() = dateState.onBackground()
 
     fun onEvent(event: ReminderEvent) {
         viewModelScope.launch {

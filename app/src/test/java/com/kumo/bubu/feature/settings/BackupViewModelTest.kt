@@ -2,6 +2,7 @@ package com.kumo.bubu.feature.settings
 
 import com.kumo.bubu.domain.repository.BackupRepository
 import com.kumo.bubu.domain.repository.BackupResult
+import com.kumo.bubu.domain.repository.BackupTooLargeException
 import com.kumo.bubu.feature.vehicle.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -28,5 +29,17 @@ class BackupViewModelTest {
         advanceUntilIdle()
 
         assertEquals("bubu-backup.bubu", viewModel.uiState.value.createdFileName)
+    }
+
+    @Test
+    fun reportsRestoreSizeLimitInsteadOfDestinationError() = runTest {
+        val viewModel = BackupViewModel(object : BackupRepository {
+            override suspend fun createBackup(destinationUriString: String): BackupResult = throw BackupTooLargeException()
+        })
+        viewModel.createBackup("content://destination")
+        advanceUntilIdle()
+        assertEquals(BackupUiState(hasError = true, isTooLarge = true), viewModel.uiState.value)
+        viewModel.clearResult()
+        assertEquals(BackupUiState(), viewModel.uiState.value)
     }
 }
